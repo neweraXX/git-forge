@@ -17,13 +17,15 @@ From the parent workspace, run checks through the supplied container helper:
 
 ```sh
 ./dock grade
-./dock grade 3
+./dock node test/grade-three.ts
 ./dock node test/conformance.ts
 ./dock node test/protocol.ts
 ./dock node test/performance.ts
 ```
 
 The conformance runner prints every check. The protocol tests additionally exercise incoming delta packs, invalid pack rejection, generic GraphQL parsing, bearer auth and response-cache invalidation across interfaces. The performance runner uses separate server/client processes and prints all workload medians.
+
+The supplied `./dock grade 3` currently passes the scrape-kit flag `--trials`, which this agent kit rejects. `test/grade-three.ts` invokes the same grader with `--instances 3` inside the container. All three practice instances score 1000/1000 and match replay byte for byte; their aggregate timing is 60874 microseconds.
 
 Git metadata and validated object closures are cached because objects are immutable. Fetch responses are bounded and keyed by the complete negotiation request. Issue serialization is cached until a REST or GraphQL mutation or comment changes the issue. Every request still authenticates and reads real shared state.
 

@@ -29,6 +29,9 @@ Local milestones all reproduced their state exports byte for byte on replay:
 | Git smart HTTP | 505 | 200 | 200 | 905 | 70527 |
 | GraphQL complete | 600 | 200 | 200 | 1000 | 73875 |
 | Immutable metadata/closure caches | 600 | 200 | 200 | 1000 | 62860 |
+| Issue response cache and protocol tests | 600 | 200 | 200 | 1000 | 61853 |
+
+Final three-instance validation (`./dock node test/grade-three.ts`) passes all 120 checks on every instance, completes all four workloads, and reproduces all three state exports byte for byte on replay. Scores are feature 600, agent 200, perf 200, total 1000 on each instance. Per-instance timing tie-breaks are 60149, 60226 and 62247 microseconds; the aggregate is 60874 microseconds. The 90% score interval is 1000..1000. The supplied `./dock grade 3` cannot run this validation because its implementation passes `--trials`; the committed wrapper uses this agent kit's correct `--instances 3` argument without changing the workspace helper.
 
 The all-pass state export SHA-256 is `a0e98d49854b961230227867235c8615858e006db3763f341ac6154af1445590`, also the hash published for the complete house conformance result. Local timing runs use the supplied helper's Node 22 process driver inside its network-less container; production sandbox timings can differ.
 
