@@ -1,4 +1,4 @@
-import { Store, Failure, requireValue, stamp } from './store.ts';
+import { Store, Failure, requireValue, stamp, changedIssue } from './store.ts';
 
 type Reply = { status: number; body?: any; headers?: Record<string, string> };
 const ok = (body: any, status = 200): Reply => ({ status, body });
@@ -93,7 +93,7 @@ export function rest(store: Store, method: string, url: URL, input: any): Reply 
       if (method === 'POST') return ok(store.comment(issue, input.body || ''), 201);
       if (method === 'GET') return paginate(store.nodes.get(issue.node_id).comments);
     } else {
-      if (method === 'PATCH') { for (const key of ['state', 'title', 'body']) if (input[key] !== undefined) issue[key] = input[key]; issue.updated_at = stamp; }
+      if (method === 'PATCH') { for (const key of ['state', 'title', 'body']) if (input[key] !== undefined) issue[key] = input[key]; issue.updated_at = stamp; changedIssue(issue); }
       if (method === 'GET' || method === 'PATCH') return ok(issue);
     }
   }

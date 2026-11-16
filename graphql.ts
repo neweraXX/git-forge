@@ -1,4 +1,4 @@
-import { Store, Repository, requireValue } from './store.ts';
+import { Store, Repository, requireValue, changedIssue } from './store.ts';
 
 type Field = { name: string; alias: string; args: any; selections: Field[]; condition?: string; directives?: { name: string; args: any }[] };
 type Operation = { name?: string; kind: string; selections: Field[]; defaults: any };
@@ -145,6 +145,7 @@ function resolver(store: Store, parent: Node, field: string, args: any): any {
     }
     if (field === 'closeIssue' || field === 'reopenIssue') {
       const found = record(input.issueId); found.item.state = field === 'closeIssue' ? 'closed' : 'open';
+      changedIssue(found.item);
       return node('Payload', { issue: node('Issue', found.item, found.repo) });
     }
     if (field === 'mergePullRequest') {

@@ -11,9 +11,9 @@ const definitions = [
 const tools = definitions.map(([name, description, required, properties]) => ({ name, description, inputSchema: { type: 'object', required, properties: Object.fromEntries(Object.entries(properties).map(([key, type]) => [key, { type }])) } }));
 const identity = { serverInfo: { name: 'forge', version: '1.0.0' }, capabilities: { tools: {} } };
 export function mcp(store: Store, call: any): any {
-  const reply = (result: any) => ({ jsonrpc: '2.0', id: call.id ?? null, result });
-  const error = (code: number, message: string) => ({ jsonrpc: '2.0', id: call.id ?? null, error: { code, message } });
-  if (!call || call.jsonrpc !== '2.0') return error(-32600, 'Invalid Request');
+  const reply = (result: any) => ({ jsonrpc: '2.0', id: call?.id ?? null, result });
+  const error = (code: number, message: string) => ({ jsonrpc: '2.0', id: call?.id ?? null, error: { code, message } });
+  if (!call || call.jsonrpc !== '2.0' || typeof call.method !== 'string') return error(-32600, 'Invalid Request');
   if (call.method === 'server/discover') return reply({ ...identity, supportedVersions: ['2026-07-28', '2025-11-25'] });
   if (call.method === 'initialize') return reply({ ...identity, protocolVersion: '2025-11-25' });
   if (call.method?.startsWith('notifications/')) return undefined;
@@ -23,7 +23,12 @@ export function mcp(store: Store, call: any): any {
   const tool = tools.find(t => t.name === call.params?.name);
   if (!tool) return error(-32602, 'Unknown tool');
   const args = call.params?.arguments || {};
+  if (typeof args !== 'object' || Array.isArray(args)) return error(-32602, 'Arguments must be an object');
   for (const key of tool.inputSchema.required) if (args[key] === undefined || args[key] === '') return error(-32602, `Missing argument: ${key}`);
+  for (const [key, property] of Object.entries(tool.inputSchema.properties)) {
+    if (args[key] === undefined) continue;
+    if (property.type === 'integer' ? !Number.isSafeInteger(args[key]) : typeof args[key] !== property.type) return error(-32602, `Invalid argument: ${key}`);
+  }
   try {
     let value: any;
     if (tool.name === 'create_repo') value = store.createRepo(args);

@@ -1,12 +1,12 @@
 import { createServer, type ServerResponse } from 'node:http';
-import { Store, Failure } from './store.ts';
+import { Store, Failure, responseBytes } from './store.ts';
 import { rest } from './rest.ts';
 import { mcp } from './mcp.ts';
 import { advertise, receive, upload } from './git.ts';
 import { graphql } from './graphql.ts';
 
 function json(res: ServerResponse, status: number, body?: unknown, headers: Record<string, string> = {}): void {
-  const data = body === undefined ? '' : JSON.stringify(body);
+  const data = responseBytes(body);
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'x-github-request-id': 'forge', 'content-length': Buffer.byteLength(data), ...headers });
   res.end(data);
 }

@@ -3,6 +3,16 @@ import { createHash } from 'node:crypto';
 export type Obj = { type: string; data: Buffer; packed?: Buffer; commit?: any; entries?: { mode: string; name: string; oid: string }[] };
 export const stamp = process.env.MAKEFUN_TRIAL_NOW || '2026-01-01T00:00:00.000Z';
 export const zero = '0'.repeat(40);
+const issueResponses = new WeakMap<object, Buffer | null>();
+export function changedIssue(issue: object): void { issueResponses.set(issue, null); }
+export function responseBytes(value: any): Buffer | string {
+  if (value && typeof value === 'object' && issueResponses.has(value)) {
+    let bytes = issueResponses.get(value);
+    if (!bytes) { bytes = Buffer.from(JSON.stringify(value)); issueResponses.set(value, bytes); }
+    return bytes;
+  }
+  return value === undefined ? '' : JSON.stringify(value);
+}
 export function hash(type: string, data: Buffer): string {
   return createHash('sha1').update(`${type} ${data.length}\0`).update(data).digest('hex');
 }
@@ -156,6 +166,7 @@ export class Store {
     const labels = (input.labels || []).map((name: any) => requireValue(r.labels.get(typeof name === 'string' ? name : name.name), 422, 'Unknown label'));
     const id = this.nextId++, number = r.nextNumber++;
     const issue = { id, node_id: this.global('Issue', id), number, title: input.title, body: input.body || '', state: 'open', labels, user: this.user(), created_at: stamp, updated_at: stamp, comments: 0 };
+    changedIssue(issue);
     r.issues.set(number, issue); this.nodes.set(issue.node_id, { kind: 'Issue', repo: r, item: issue, comments: [] });
     return issue;
   }
@@ -187,7 +198,7 @@ export class Store {
   comment(issue: any, body: string): any {
     const node = requireValue(this.nodes.get(issue.node_id));
     const id = this.nextId++, comment = { id, node_id: this.global('IssueComment', id), body, user: this.user(), created_at: stamp, updated_at: stamp };
-    node.comments.push(comment); issue.comments++;
+    node.comments.push(comment); issue.comments++; changedIssue(issue);
     return comment;
   }
 }
