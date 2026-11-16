@@ -3,6 +3,7 @@ import { Store, Failure } from './store.ts';
 import { rest } from './rest.ts';
 import { mcp } from './mcp.ts';
 import { advertise, receive, upload } from './git.ts';
+import { graphql } from './graphql.ts';
 
 function json(res: ServerResponse, status: number, body?: unknown, headers: Record<string, string> = {}): void {
   const data = body === undefined ? '' : JSON.stringify(body);
@@ -43,6 +44,7 @@ export function createApp() {
         catch { return json(res, 400, path === '/mcp' ? { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } } : { message: 'Invalid JSON' }); }
       }
       if (path === '/mcp') { const result = mcp(store, input); return json(res, result === undefined ? 202 : 200, result); }
+      if (path === '/api/graphql' && method === 'POST') return json(res, 200, graphql(store, input));
       if (path === '/api/v3' || path.startsWith('/api/v3/')) { const result = rest(store, method, url, input); return json(res, result.status, result.body, result.headers); }
       return json(res, 404, { message: 'Not Found' });
     } catch (error) {
