@@ -26,14 +26,14 @@ export function rest(store: Store, method: string, url: URL, input: any): Reply 
   const [, owner, name, tail = ''] = match, r = store.repo(owner, name);
   if (!tail) {
     if (method === 'GET') return ok(store.repository(r));
-    if (method === 'PATCH') { if (input.description !== undefined) r.description = input.description; if (input.default_branch) r.default_branch = input.default_branch; return ok(store.repository(r)); }
+    if (method === 'PATCH') { if (input.description !== undefined) r.description = input.description; if (input.default_branch) { r.default_branch = input.default_branch; r.refResponses.clear(); } return ok(store.repository(r)); }
     if (method === 'DELETE') { store.repos.delete(name); return { status: 204 }; }
   }
   const refBody = (ref: string) => ({ ref, node_id: store.global('Ref', r.id), object: { sha: requireValue(r.refs.get(ref)), type: 'commit' } });
   if (tail === 'git/refs' && method === 'POST') {
     requireValue(input.ref?.startsWith('refs/') && r.objects.has(input.sha), 422, 'Invalid ref or object');
     if (r.refs.has(input.ref)) throw new Failure(422, 'Reference already exists');
-    r.refs.set(input.ref, input.sha); return ok(refBody(input.ref), 201);
+    r.setRef(input.ref, input.sha); return ok(refBody(input.ref), 201);
   }
   if (/^git\/refs?\//.test(tail) && method === 'GET') return ok(refBody(tail.replace(/^git\/refs?\//, 'refs/')));
   if (tail === 'branches' && method === 'GET') return paginate([...r.refs].filter(([ref]) => ref.startsWith('refs/heads/')).map(([ref, sha]) => ({ name: ref.slice(11), commit: { sha }, protected: false })));
@@ -70,7 +70,7 @@ export function rest(store: Store, method: string, url: URL, input: any): Reply 
       if (method === 'DELETE') files.delete(filePath);
       else { requireValue(typeof input.content === 'string', 422, 'Content required'); files.set(filePath, r.put('blob', Buffer.from(input.content, 'base64'))); }
       const sha = r.writeCommit(files, tip ? [tip] : [], input.message || 'Update file');
-      r.refs.set(`refs/heads/${branch}`, sha);
+      r.setRef(`refs/heads/${branch}`, sha);
       return ok({ content: method === 'DELETE' ? null : content(filePath, files.get(filePath)!), commit: { sha, message: input.message || 'Update file' } }, method === 'PUT' && !old ? 201 : 200);
     }
   }

@@ -159,8 +159,11 @@ function refs(r: Repository): [string, string][] {
   const head = r.resolve(); if (head) list.unshift(['HEAD', head]);
   return list;
 }
+const v2Advertisement = Buffer.concat(['version 2\n', 'agent=forge/1\n', 'ls-refs=unborn\n', 'fetch=shallow\n', 'object-format=sha1\n'].map(pkt).concat([flush]));
 export function advertise(r: Repository, service: string, v2: boolean): Buffer {
-  if (service === 'git-upload-pack' && v2) return Buffer.concat(['version 2\n', 'agent=forge/1\n', 'ls-refs=unborn\n', 'fetch=shallow\n', 'object-format=sha1\n'].map(pkt).concat([flush]));
+  if (service === 'git-upload-pack' && v2) return v2Advertisement;
+  const cacheKey = `advertise:${service}`, cached = r.refResponses.get(cacheKey);
+  if (cached) return cached;
   const caps = service === 'git-receive-pack' ? 'report-status side-band-64k delete-refs ofs-delta agent=forge/1' : `multi_ack_detailed side-band-64k ofs-delta shallow symref=HEAD:refs/heads/${r.default_branch} agent=forge/1`;
   const list = refs(r), out = [pkt(`# service=${service}\n`), flush];
   if (!list.length) out.push(pkt(`${zero} capabilities^{}\0${caps}\n`));
@@ -168,7 +171,8 @@ export function advertise(r: Repository, service: string, v2: boolean): Buffer {
     out.push(pkt(`${oid} ${name}${index === 0 ? '\0' + caps : ''}\n`));
     const peel = peeled(r, oid); if (peel) out.push(pkt(`${peel} ${name}^{}\n`));
   });
-  out.push(flush); return Buffer.concat(out);
+  out.push(flush);
+  const result = Buffer.concat(out); r.refResponses.set(cacheKey, result); return result;
 }
 export function receive(r: Repository, body: Buffer): Buffer {
   const parsed = packets(body, true), lines = parsed.lines.map(b => b.toString());
@@ -191,7 +195,7 @@ export function receive(r: Repository, body: Buffer): Buffer {
       if (current !== c.old) reason = 'stale old object id';
       else if (c.next !== zero && c.old !== zero && !r.ancestor(c.old, c.next)) reason = 'non-fast-forward';
       if (reason) report.push(pkt(`ng ${c.ref} ${reason}\n`));
-      else { if (c.next === zero) r.refs.delete(c.ref); else r.refs.set(c.ref, c.next); report.push(pkt(`ok ${c.ref}\n`)); }
+      else { r.setRef(c.ref, c.next); report.push(pkt(`ok ${c.ref}\n`)); }
     }
   } catch (error) {
     report.push(pkt('unpack invalid pack\n'));
@@ -202,7 +206,7 @@ export function receive(r: Repository, body: Buffer): Buffer {
 }
 export function upload(r: Repository, body: Buffer, v2: boolean): Buffer {
   const key = `${v2 ? 2 : 0}:${body.toString('base64')}`;
-  const cached = r.fetchCache.get(key); if (cached) return cached;
+  const cached = r.fetchCache.get(key) || r.refResponses.get(key); if (cached) return cached;
   const lines = packets(body).lines.map(b => b.toString().trim());
   if (lines.includes('command=ls-refs')) {
     const prefixes = lines.filter(l => l.startsWith('ref-prefix ')).map(l => l.slice(11));
@@ -214,7 +218,10 @@ export function upload(r: Repository, body: Buffer, v2: boolean): Buffer {
       const peel = peeled(r, oid); if (peel && lines.includes('peel')) extra.push(`peeled:${peel}`);
       out.push(pkt(`${oid} ${name}${extra.length ? ' ' + extra.join(' ') : ''}\n`));
     }
-    out.push(flush); return Buffer.concat(out);
+    out.push(flush);
+    const result = Buffer.concat(out);
+    if (r.refResponses.size > 64) r.refResponses.clear();
+    r.refResponses.set(key, result); return result;
   }
   const wants = lines.filter(l => l.startsWith('want ')).map(l => l.split(' ')[1]);
   const haves = lines.filter(l => l.startsWith('have ')).map(l => l.split(' ')[1]).filter(oid => r.objects.has(oid));

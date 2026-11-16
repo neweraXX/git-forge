@@ -38,6 +38,7 @@ export class Repository {
   nextNumber = 1;
   fetchCache = new Map<string, Buffer>();
   validated = new Set<string>();
+  refResponses = new Map<string, Buffer>();
   constructor(id: number, input: any) {
     this.id = id; this.name = input.name; this.description = input.description || '';
     this.private = !!input.private; this.default_branch = input.default_branch || 'main';
@@ -50,6 +51,10 @@ export class Repository {
   }
   resolve(ref?: string): string | undefined {
     return this.refs.get(ref || `refs/heads/${this.default_branch}`) || this.refs.get(`refs/heads/${ref}`) || this.refs.get(`refs/tags/${ref}`) || (ref && this.objects.has(ref) ? ref : undefined);
+  }
+  setRef(ref: string, oid: string): void {
+    if (oid === zero) this.refs.delete(ref); else this.refs.set(ref, oid);
+    this.refResponses.clear();
   }
   commit(oid?: string): any {
     const obj = oid && this.objects.get(oid);
@@ -191,7 +196,7 @@ export class Store {
       if (next) merged.set(path, next); else merged.delete(path);
     }
     const sha = r.writeCommit(merged, [current], pull.title);
-    r.refs.set(`refs/heads/${pull.base.ref}`, sha);
+    r.setRef(`refs/heads/${pull.base.ref}`, sha);
     Object.assign(pull, { state: 'closed', merged: true, merged_at: stamp, merge_commit_sha: sha });
     return { sha, merged: true, message: 'Pull request successfully merged' };
   }
