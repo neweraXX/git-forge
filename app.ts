@@ -35,6 +35,10 @@ export function createApp() {
         res.writeHead(200, { 'content-type': type, 'content-length': data.length, 'cache-control': 'no-cache' });
         res.end(data); return;
       }
+      if (method === 'GET' && (path === '/api/v3' || path.startsWith('/api/v3/'))) {
+        const result = rest(store, method, url, {});
+        return json(res, result.status, result.body, result.headers);
+      }
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk);
       const raw = Buffer.concat(chunks);

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export type Obj = { type: string; data: Buffer; packed?: Buffer };
+export type Obj = { type: string; data: Buffer; packed?: Buffer; commit?: any; entries?: { mode: string; name: string; oid: string }[] };
 export const stamp = process.env.MAKEFUN_TRIAL_NOW || '2026-01-01T00:00:00.000Z';
 export const zero = '0'.repeat(40);
 export function hash(type: string, data: Buffer): string {
@@ -27,6 +27,7 @@ export class Repository {
   labels = new Map<string, any>();
   nextNumber = 1;
   fetchCache = new Map<string, Buffer>();
+  validated = new Set<string>();
   constructor(id: number, input: any) {
     this.id = id; this.name = input.name; this.description = input.description || '';
     this.private = !!input.private; this.default_branch = input.default_branch || 'main';
@@ -43,12 +44,16 @@ export class Repository {
   commit(oid?: string): any {
     const obj = oid && this.objects.get(oid);
     if (!obj || obj.type !== 'commit') return null;
+    if (obj.commit) return obj.commit;
     const text = obj.data.toString();
-    return { tree: text.match(/^tree ([a-f0-9]{40})/m)?.[1], parents: [...text.matchAll(/^parent ([a-f0-9]{40})/gm)].map(x => x[1]), message: text.slice(text.indexOf('\n\n') + 2).replace(/\n$/, '') };
+    obj.commit = { tree: text.match(/^tree ([a-f0-9]{40})/m)?.[1], parents: [...text.matchAll(/^parent ([a-f0-9]{40})/gm)].map(x => x[1]), message: text.slice(text.indexOf('\n\n') + 2).replace(/\n$/, '') };
+    return obj.commit;
   }
   tree(oid: string): { mode: string; name: string; oid: string }[] {
-    const data = this.objects.get(oid)?.data;
-    if (!data) return [];
+    const object = this.objects.get(oid);
+    if (!object) return [];
+    if (object.entries) return object.entries;
+    const data = object.data;
     const entries = [];
     for (let pos = 0; pos < data.length;) {
       const space = data.indexOf(32, pos), nul = data.indexOf(0, space);
@@ -56,6 +61,7 @@ export class Repository {
       entries.push({ mode: data.toString('utf8', pos, space), name: data.toString('utf8', space + 1, nul), oid: data.subarray(nul + 1, nul + 21).toString('hex') });
       pos = nul + 21;
     }
+    object.entries = entries;
     return entries;
   }
   files(tip?: string): Map<string, string> {

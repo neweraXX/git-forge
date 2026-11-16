@@ -137,6 +137,23 @@ function peeled(r: Repository, oid: string): string | undefined {
   if (object?.type !== 'tag') return undefined;
   return object.data.toString().match(/^object ([a-f0-9]{40})/m)?.[1];
 }
+function validateGraph(r: Repository, tips: string[]): void {
+  const pending = [...tips], checked = new Set<string>();
+  while (pending.length) {
+    const oid = pending.pop()!;
+    if (r.validated.has(oid) || checked.has(oid)) continue;
+    const object = requireValue(r.objects.get(oid), 400, 'Missing object');
+    checked.add(oid);
+    if (object.type === 'commit') {
+      const commit = r.commit(oid);
+      pending.push(commit.tree, ...commit.parents);
+    } else if (object.type === 'tree') {
+      for (const entry of r.tree(oid)) if (entry.mode !== '160000') pending.push(entry.oid);
+    } else if (object.type === 'tag') pending.push(requireValue(peeled(r, oid), 400, 'Invalid tag target'));
+  }
+  // Git objects are immutable: a validated closure remains valid across every ref update.
+  for (const oid of checked) r.validated.add(oid);
+}
 function refs(r: Repository): [string, string][] {
   const list: [string, string][] = [...r.refs].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   const head = r.resolve(); if (head) list.unshift(['HEAD', head]);
@@ -166,7 +183,7 @@ export function receive(r: Repository, body: Buffer): Buffer {
     if (body.length > parsed.offset) unpack(r, body.subarray(parsed.offset));
     else requireValue(commands.every(c => c.next === zero), 400, 'Missing pack');
     // Check closure before updating refs, so corrupt/missing objects cannot create broken refs.
-    closure(r, commands.filter(c => c.next !== zero).map(c => c.next));
+    validateGraph(r, commands.filter(c => c.next !== zero).map(c => c.next));
     report.push(pkt('unpack ok\n'));
     for (const c of commands) {
       const current = r.refs.get(c.ref) || zero;
