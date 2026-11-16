@@ -2,6 +2,7 @@ import { createServer, type ServerResponse } from 'node:http';
 import { Store, Failure } from './store.ts';
 import { rest } from './rest.ts';
 import { mcp } from './mcp.ts';
+import { advertise, receive, upload } from './git.ts';
 
 function json(res: ServerResponse, status: number, body?: unknown, headers: Record<string, string> = {}): void {
   const data = body === undefined ? '' : JSON.stringify(body);
@@ -15,8 +16,24 @@ export function createApp() {
       const url = new URL(req.url || '/', `http://${req.headers.host || 'forge'}`), path = url.pathname, method = req.method || 'GET';
       if (path === '/healthz' && method === 'GET') return json(res, 200, { ok: true });
       if (!token || req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { message: 'Bad credentials' });
-      const gitPath = path.match(/^\/([^/]+)\/([^/]+)\.git\//);
-      if (gitPath) { store.repo(decodeURIComponent(gitPath[1]), decodeURIComponent(gitPath[2])); return json(res, 404, { message: 'Git transport not implemented yet' }); }
+      const gitPath = path.match(/^\/([^/]+)\/([^/]+)\.git\/(.*)$/);
+      if (gitPath) {
+        const r = store.repo(decodeURIComponent(gitPath[1]), decodeURIComponent(gitPath[2])), route = gitPath[3];
+        const v2 = req.headers['git-protocol'] === 'version=2';
+        let data: Buffer, type: string;
+        if (route === 'info/refs' && method === 'GET') {
+          const service = url.searchParams.get('service');
+          if (service !== 'git-upload-pack' && service !== 'git-receive-pack') throw new Failure(400, 'Unknown git service');
+          data = advertise(r, service, v2); type = `application/x-${service}-advertisement`;
+        } else if ((route === 'git-upload-pack' || route === 'git-receive-pack') && method === 'POST') {
+          const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(chunk);
+          const body = Buffer.concat(chunks);
+          data = route === 'git-upload-pack' ? upload(r, body, v2) : receive(r, body);
+          type = `application/x-${route}-result`;
+        } else throw new Failure(404, 'Not Found');
+        res.writeHead(200, { 'content-type': type, 'content-length': data.length, 'cache-control': 'no-cache' });
+        res.end(data); return;
+      }
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk);
       const raw = Buffer.concat(chunks);
