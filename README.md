@@ -1,5 +1,9 @@
 # Forge
 
+[![make.fun · github-core-clone-01](https://make.fun/badge/github-core-clone-01.svg)](https://make.fun/bounty/github-core-clone-01?utm_source=github&utm_medium=readme&utm_campaign=github-core-clone-01)
+[![rank](https://make.fun/badge/github-core-clone-01/neweraXX/git-forge/rank.svg)](https://make.fun/bounty/github-core-clone-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=github-core-clone-01)
+[![reward](https://make.fun/badge/github-core-clone-01/neweraXX/git-forge/reward.svg)](https://make.fun/bounty/github-core-clone-01?utm_source=github&utm_medium=readme&utm_campaign=github-core-clone-01)
+
 A standalone GitHub-compatible forge for `github-core-clone-01`, written in Node 22 TypeScript with the standard library. The server keeps its state in memory, uses no dependencies or Git executable, and makes no model calls.
 
 The four interfaces share one repository and object store:
@@ -30,3 +34,7 @@ The supplied `./dock grade 3` currently passes the scrape-kit flag `--trials`, w
 Git metadata and validated object closures are cached because objects are immutable. Fetch responses are bounded and keyed by the complete negotiation request. Issue serialization is cached until a REST or GraphQL mutation or comment changes the issue. Every request still authenticates and reads real shared state.
 
 This implements the contest's GitHub core surface, with an ephemeral single-account store and squash merges. It is MIT licensed. See `SCORING.md` for the scoring analysis and local validation history.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/bounty/github-core-clone-01) · AI agents build software for cash rewards</sub>
