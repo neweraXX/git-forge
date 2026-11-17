@@ -1,18 +1,34 @@
-# Round 2 performance measurements
+# Performance measurements
 
-## Round 3 CPU baseline (2026-11-17)
+## Round 3 results (2026-11-17)
 
-`test/workload-cpu.ts` runs the sealed workloads against a separate server process and samples that process's `process.cpuUsage()` over IPC at round boundaries. CPU is the average of rounds 2–5 (excluding setup, warm-up and round one), then the median across three fresh processes. Client CPU is excluded; background JIT and GC are included. A snapshot can race at most one request in the following round.
+The starting runtime is `1bb820e`; retained runtime changes end at `86d26b7`. `test/workload-cpu.ts` runs the sealed workloads against a separate server process and samples its `process.cpuUsage()` over IPC. CPU is the average of rounds 2–5, then the median across three fresh processes; setup, warm-up and round one are excluded. Client CPU is excluded; background JIT and GC are included. Sequential requests can race one snapshot; a concurrent clone burst can straddle a boundary. The harness also records whole-workload CPU including setup.
 
-Starting runtime `1bb820e`: push p50 56.253 ms / CPU 32.308 ms; clone 20.859 / 14.644; read 110.399 / 21.150; write 17.871 / 4.439. These warmed standalone timings are separate from full grading. A fresh baseline full grade passed 120/120 and replay, score 1000, perf_p50_us 53767 (push 77.760 ms, clone 21.964, read 190.114, write 25.739).
+Final paired comparison (three fresh processes per version, five rounds per workload):
 
-The socket parser now reuses its request record, skips unused header values, and recognizes byte-identical bodyless GET headers on the same socket. It still routes every request against the current store. In a three-process paired comparison, read CPU fell from 20.960 to 18.599 ms per round (11.3%). Framing and protocol tests pass. `test/cpu-compare.ts` supports comparisons against an earlier runtime materialized in the uncommitted `test/.baseline/` directory.
+| Workload | Before p50 ms | After p50 ms | Before server CPU ms/round | After server CPU ms/round |
+| --- | ---: | ---: | ---: | ---: |
+| Push | 49.102 | 38.761 | 33.245 | 19.079 |
+| Clone | 18.433 | 18.292 | 13.457 | 9.851 |
+| Read | 113.132 | 104.592 | 21.321 | 16.090 |
+| Write | 18.761 | 17.566 | 4.059 | 4.111 |
 
-Packed Git objects reuse one native inflater, resetting it for each independent zlib stream. The synchronous binding has a public-API fallback when its layout is unavailable; malformed streams, output sizes, checksums and consumed input remain checked. `test/inflate.ts` checks levels 0/1/6/9, empty through 1 MiB objects, random/repeated data, trailing bytes, malformed input and recovery. Warm isolated CPU fell from 33–49 ms to 7–10 ms for 30000 small inflations. Paired workload push CPU fell from 30.446 to 25.192 ms (17.3%, including transport changes). A full grade passed all 120 checks and replay at 52457 us, score 1000.
+Standalone geometric means were 37229→33784 us. CPU fell approximately 43% for push, 27% for clone and 25% for read; write CPU was effectively flat. These warmed standalone timings are not full-grade timings.
 
-The transport also has optional native socket read/write adapters, with standard stream fallbacks when their bindings are unavailable (`FORGE_READER=stream`, `FORGE_WRITER=stream` force those fallbacks). The parser owns read buffering; queued writes retain their bytes and pause parsing until completion. A write wrapper is reused only for synchronous writes and replaced before an asynchronous completion resumes parsing. The expanded transport test exercises 16 MiB of pipelined responses to a paused reader, plus mutation/auth invalidation on one reused connection. In separate paired comparisons the writer reduced read CPU 19.432→17.944 ms, and the reader reduced push 24.298→22.612, clone 10.768→7.146, read 17.710→16.082, write 4.634→4.315 ms.
+The initial one-instance full grade measured 53767 us (push 77.760 ms, clone 21.964, read 190.114, write 25.739). Final `./dock node test/grade-three.ts` measured **53204, 54918, 55991 us**, averaging **54704.333333 us**. All three passed 120/120 checks, scored feature 600 + agent 200 + perf 200 = **1000**, and matched replay byte for byte with the unchanged all-pass export hash. Their median workload p50s were push 80.773 ms, clone 22.094, read 187.926, write 27.207. This is not a matched three-instance baseline comparison. The requested **40000 us full-grade target was not reached**, and no real-server regrade was performed.
 
-Small object IDs and pack checksums use Node's one-shot SHA-1 API. Git packet parsing decodes hexadecimal lengths directly and creates strings without intermediate Buffer views; ref advertisements use one final encoding allocation; immediate-parent fast-forward checks avoid allocating a traversal set. Separate paired comparisons reduced push CPU 21.975→20.482 ms for hashing, then 20.858→18.979 ms for the remaining Git changes. Checksums, delta resolution, ref rules and graph validation remain enforced.
+Retained changes:
+
+- Reuse socket request records, skip unused header values and reuse parsed byte-identical bodyless GET headers. Every request still authenticates and routes against current store state.
+- Reuse a native inflater across independent Git zlib streams, with the public one-shot API as a fallback. Checksums, object sizes/hashes, delta resolution and graph validation remain enforced. The inflater test covers levels 0/1/6/9, empty through 1 MiB objects, both entropies, trailing bytes, corruption, truncation, overflow and recovery.
+- Native socket read/write adapters avoid intermediate stream queues and reuse synchronous write wrappers. Queued writes retain their bytes and pause parsing until completion; asynchronous completions get a fresh wrapper before resuming. These paths depend on Node internals and fall back to normal stream APIs when their layouts are unavailable. `FORGE_READER=stream` and `FORGE_WRITER=stream` force the fallbacks. Transport tests cover all four combinations, including 16 MiB backpressure, fragmentation, trailers, pipelining and GET mutation/auth invalidation.
+- One-shot SHA-1 for small objects and packs, direct hexadecimal packet-length parsing, one final advertisement encoding, and allocation-free immediate-parent fast-forward checks.
+
+Discarded: dynamic semi-space flags, larger semi-spaces supplied at process startup, compiler/GC tuning, cached user records, custom issue serialization, header-prefix caching and single-allocation creation responses. None clearly improved workload CPU overall. Changing GC mode dynamically also crashed the diagnostic process; no V8 flags are deployed.
+
+Reproduce with `./dock node test/workload-cpu.ts`, `test/profile-server.ts`, `test/transport-modes.ts`, `test/inflate.ts`, `test/hash-cost.ts`, and `test/grade-three.ts`. For `test/cpu-compare.ts`, first materialize `1bb820e`'s runtime .ts files under the uncommitted `repo/test/.baseline/` using `git show`; remove that snapshot afterward. All temporary comparison directories were removed before final grading. Owner metadata and README badges were untouched.
+
+## Round 2 history
 
 All measurements use the supplied network-less `./dock` container. No real-server regrade of the new commit was performed. The reported starting server result was score 936, perf 136 and perf_p50_us 492573; local scores remain capped at 1000, so local timing and server CPU are the useful comparisons.
 

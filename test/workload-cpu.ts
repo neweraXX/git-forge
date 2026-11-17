@@ -33,7 +33,8 @@ for (let repeat = 0; repeat < repeats; repeat++) {
       const snapshots = await Promise.all(samples), after = await stats();
       const cpu = (s: any) => (s.cpu.user + s.cpu.system) / 1000;
       // Snapshot messages are queued at each round's end. Differences exclude setup,
-      // warm-up and round one. At most one next-round request can race a snapshot.
+      // warm-up and round one. Sequential workloads can race one following
+      // request; a concurrent clone burst can straddle a snapshot boundary.
       const roundCpu = snapshots.slice(1).map((s, i) => cpu(s) - cpu(snapshots[i]));
       const workload = result.workloads[0];
       if (workload.error || snapshots.length !== 5) throw new Error(JSON.stringify(workload));
