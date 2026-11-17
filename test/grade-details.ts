@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 const directory = '/tmp/forge-grade-details';
 const run = spawn(process.execPath, [
-  '/kit/cli/makefun.mjs', 'grade-local', '--kit', '/kit', '--bot', '/bot',
+  '/kit/cli/makefun.mjs', 'grade-local', '--kit', '/kit', '--bot', process.env.FORGE_TEST_BOT || '/bot',
   '--driver', 'process', '--worktree', '--save', directory,
 ], { cwd: '/kit', stdio: 'inherit' });
 const code = await new Promise<number>((resolve, reject) => { run.once('error', reject); run.once('exit', value => resolve(value ?? 1)); });
