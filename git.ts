@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { deflateSync, inflateSync } from 'node:zlib';
+import { deflateSync } from 'node:zlib';
 import { Repository, Failure, requireValue, zero, hash, type Obj } from './store.ts';
+import { inflateObject, consumed } from './inflate.ts';
 
 const names = ['', 'commit', 'tree', 'blob', 'tag'];
 const flush = Buffer.from('0000'), delim = Buffer.from('0001');
@@ -88,9 +89,8 @@ export function unpack(r: Repository, pack: Buffer): void {
     } else if (type === 7) { baseOid = pack.subarray(pos, pos + 20).toString('hex'); pos += 20; }
     else if (!names[type]) throw new Failure(400, 'Unknown pack object type');
     requireValue(pos < end && size <= 64 * 1024 * 1024, 400, 'Invalid packed object');
-    const result = inflateSync(pack.subarray(pos, end), { info: true, chunkSize: Math.max(64, Math.min(16384, size)), maxOutputLength: 64 * 1024 * 1024 }) as any;
-    const data: Buffer = result.buffer;
-    pos += result.engine.bytesWritten;
+    const data = inflateObject(pack, pos, end, size);
+    pos += consumed;
     requireValue(data.length === size, 400, 'Packed object size mismatch');
     if (type === 6 || type === 7) pending.push({ offset: start, baseOffset, baseOid, data });
     else save(start, { type: names[type], data, packed: pack.subarray(start, pos) });

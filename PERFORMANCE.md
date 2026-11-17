@@ -8,6 +8,8 @@ Starting runtime `1bb820e`: push p50 56.253 ms / CPU 32.308 ms; clone 20.859 / 1
 
 The socket parser now reuses its request record, skips unused header values, and recognizes byte-identical bodyless GET headers on the same socket. It still routes every request against the current store. In a three-process paired comparison, read CPU fell from 20.960 to 18.599 ms per round (11.3%). Framing and protocol tests pass. `test/cpu-compare.ts` supports comparisons against an earlier runtime materialized in the uncommitted `test/.baseline/` directory.
 
+Packed Git objects reuse one native inflater, resetting it for each independent zlib stream. The synchronous binding has a public-API fallback when its layout is unavailable; malformed streams, output sizes, checksums and consumed input remain checked. `test/inflate.ts` checks levels 0/1/6/9, empty through 1 MiB objects, random/repeated data, trailing bytes, malformed input and recovery. Warm isolated CPU fell from 33–49 ms to 7–10 ms for 30000 small inflations. Paired workload push CPU fell from 30.446 to 25.192 ms (17.3%, including transport changes). A full grade passed all 120 checks and replay at 52457 us, score 1000.
+
 All measurements use the supplied network-less `./dock` container. No real-server regrade of the new commit was performed. The reported starting server result was score 936, perf 136 and perf_p50_us 492573; local scores remain capped at 1000, so local timing and server CPU are the useful comparisons.
 
 ## Full grader results
