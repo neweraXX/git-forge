@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createHandler, type Reply } from './router.ts';
+import { createTransport } from './transport.ts';
 
 const empty = Buffer.alloc(0);
 function send(res: ServerResponse, result: Reply): void {
@@ -8,6 +9,7 @@ function send(res: ServerResponse, result: Reply): void {
   res.writeHead(result.status, headers); res.end(result.data);
 }
 export function createApp() {
+  if (process.env.FORGE_HTTP !== 'node') return createTransport();
   const handle = createHandler();
   function dispatch(req: IncomingMessage, res: ServerResponse, body: Buffer): void {
     send(res, handle({ method: req.method || 'GET', url: req.url || '/', authorization: req.headers.authorization, gitProtocol: req.headers['git-protocol'] as string, host: req.headers.host, body }));
