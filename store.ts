@@ -39,6 +39,7 @@ export class Repository {
   fetchCache = new Map<string, Buffer>();
   validated = new Set<string>();
   refResponses = new Map<string, Buffer>();
+  receiveReports = new Map<string, Buffer>();
   constructor(id: number, input: any) {
     this.id = id; this.name = input.name; this.description = input.description || '';
     this.private = !!input.private; this.default_branch = input.default_branch || 'main';

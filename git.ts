@@ -5,9 +5,12 @@ import { Repository, Failure, requireValue, zero, hash, type Obj } from './store
 const names = ['', 'commit', 'tree', 'blob', 'tag'];
 const flush = Buffer.from('0000'), delim = Buffer.from('0001');
 export function pkt(payload: Buffer | string): Buffer {
-  const data = typeof payload === 'string' ? Buffer.from(payload) : payload;
-  if (data.length > 65516) throw new Failure(400, 'Packet too large');
-  return Buffer.concat([Buffer.from((data.length + 4).toString(16).padStart(4, '0')), data]);
+  const length = Buffer.byteLength(payload);
+  if (length > 65516) throw new Failure(400, 'Packet too large');
+  const result = Buffer.allocUnsafe(length + 4);
+  result.write((length + 4).toString(16).padStart(4, '0'), 0, 4, 'ascii');
+  if (typeof payload === 'string') result.write(payload, 4); else payload.copy(result, 4);
+  return result;
 }
 function packets(body: Buffer, stopAtFlush = false): { lines: Buffer[]; offset: number } {
   const lines: Buffer[] = [];
@@ -24,9 +27,14 @@ function packets(body: Buffer, stopAtFlush = false): { lines: Buffer[]; offset: 
   return { lines, offset };
 }
 function sideband(data: Buffer): Buffer {
-  const chunks: Buffer[] = [];
-  for (let pos = 0; pos < data.length; pos += 65515) chunks.push(pkt(Buffer.concat([Buffer.from([1]), data.subarray(pos, pos + 65515)])));
-  chunks.push(flush); return Buffer.concat(chunks);
+  const result = Buffer.allocUnsafe(data.length + Math.ceil(data.length / 65515) * 5 + 4);
+  let dest = 0;
+  for (let pos = 0; pos < data.length; pos += 65515) {
+    const length = Math.min(65515, data.length - pos);
+    result.write((length + 5).toString(16).padStart(4, '0'), dest, 4, 'ascii'); result[dest + 4] = 1;
+    data.copy(result, dest + 5, pos, pos + length); dest += length + 5;
+  }
+  flush.copy(result, dest); return result;
 }
 function deltaApply(base: Buffer, delta: Buffer): Buffer {
   let pos = 0;
@@ -80,7 +88,7 @@ export function unpack(r: Repository, pack: Buffer): void {
     } else if (type === 7) { baseOid = pack.subarray(pos, pos + 20).toString('hex'); pos += 20; }
     else if (!names[type]) throw new Failure(400, 'Unknown pack object type');
     requireValue(pos < end && size <= 64 * 1024 * 1024, 400, 'Invalid packed object');
-    const result = inflateSync(pack.subarray(pos, end), { info: true, maxOutputLength: 64 * 1024 * 1024 }) as any;
+    const result = inflateSync(pack.subarray(pos, end), { info: true, chunkSize: Math.max(64, Math.min(16384, size)), maxOutputLength: 64 * 1024 * 1024 }) as any;
     const data: Buffer = result.buffer;
     pos += result.engine.bytesWritten;
     requireValue(data.length === size, 400, 'Packed object size mismatch');
@@ -182,27 +190,31 @@ export function receive(r: Repository, body: Buffer): Buffer {
     requireValue(/^[a-f0-9]{40}$/.test(old) && /^[a-f0-9]{40}$/.test(next) && ref?.startsWith('refs/') && !/[\x00-\x20~^:?*\[\\]/.test(ref), 400, 'Invalid ref command');
     return { old, next, ref };
   });
-  const report: Buffer[] = [];
+  const report: string[] = [];
   try {
     if (body.length > parsed.offset) unpack(r, body.subarray(parsed.offset));
     else requireValue(commands.every(c => c.next === zero), 400, 'Missing pack');
     // Check closure before updating refs, so corrupt/missing objects cannot create broken refs.
     validateGraph(r, commands.filter(c => c.next !== zero).map(c => c.next));
-    report.push(pkt('unpack ok\n'));
+    report.push('unpack ok\n');
     for (const c of commands) {
       const current = r.refs.get(c.ref) || zero;
       let reason = '';
       if (current !== c.old) reason = 'stale old object id';
       else if (c.next !== zero && c.old !== zero && !r.ancestor(c.old, c.next)) reason = 'non-fast-forward';
-      if (reason) report.push(pkt(`ng ${c.ref} ${reason}\n`));
-      else { r.setRef(c.ref, c.next); report.push(pkt(`ok ${c.ref}\n`)); }
+      if (reason) report.push(`ng ${c.ref} ${reason}\n`);
+      else { r.setRef(c.ref, c.next); report.push(`ok ${c.ref}\n`); }
     }
   } catch (error) {
-    report.push(pkt('unpack invalid pack\n'));
-    for (const c of commands) report.push(pkt(`ng ${c.ref} unpacker error\n`));
+    report.push('unpack invalid pack\n');
+    for (const c of commands) report.push(`ng ${c.ref} unpacker error\n`);
   }
-  report.push(flush);
-  return side ? sideband(Buffer.concat(report)) : Buffer.concat(report);
+  const key = `${side ? 1 : 0}:${report.join('')}`, cached = r.receiveReports.get(key);
+  if (cached) return cached;
+  const stream = Buffer.concat([...report.map(pkt), flush]);
+  const result = side ? sideband(stream) : stream;
+  if (r.receiveReports.size >= 64) r.receiveReports.clear();
+  r.receiveReports.set(key, result); return result;
 }
 export function upload(r: Repository, body: Buffer, v2: boolean): Buffer {
   const key = `${v2 ? 2 : 0}:${body.toString('base64')}`;
