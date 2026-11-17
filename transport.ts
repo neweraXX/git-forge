@@ -22,7 +22,9 @@ export function createTransport() {
   const handle = createHandler();
   return createServer(socket => {
     socket.setNoDelay(true); socket.setTimeout(60000, () => socket.destroy());
-    let pending: Buffer = empty, request: Request | undefined;
+    let pending: Buffer = empty, hasHeaders = false;
+    const request: Request = { method: '', url: '', body: empty, authorization: undefined, gitProtocol: undefined, host: undefined };
+    let lastGet: Buffer | undefined;
     let remaining = 0, close = false, chunked = false, waiting = false, ended = false;
     let chunks: Buffer[] = [], total = 0, chunkRemaining = -1, trailers = false;
     function reject(status = 400): void {
@@ -31,25 +33,33 @@ export function createTransport() {
       socket.end(encode({ status, type: 'application/json', data: JSON.stringify({ message: status === 413 ? 'Request too large' : 'Bad Request' }) }, true));
     }
     function respond(body: Buffer): boolean {
-      request!.body = body;
-      const result = handle(request!); request = undefined;
+      request.body = body;
+      const result = handle(request); hasHeaders = false;
       const bytes = encode(result, close);
       if (close) { ended = true; socket.end(bytes); return false; }
       if (!socket.write(bytes)) { waiting = true; socket.pause(); return false; }
       return true;
     }
     function parseHeaders(bytes: Buffer): boolean {
+      lastGet = undefined;
       const head = bytes.toString('latin1'), first = head.indexOf('\r\n');
       const line = head.slice(0, first), space = line.indexOf(' '), last = line.lastIndexOf(' ');
       if (space < 1 || last <= space || line.slice(last + 1) !== 'HTTP/1.1' && line.slice(last + 1) !== 'HTTP/1.0') { reject(); return false; }
-      request = { method: line.slice(0, space), url: line.slice(space + 1, last), body: empty };
+      request.method = line.slice(0, space); request.url = line.slice(space + 1, last);
+      request.authorization = request.gitProtocol = request.host = undefined;
       close = line.endsWith('HTTP/1.0'); remaining = 0; chunked = false;
       let contentLength = false, transfer = false;
       for (let pos = first + 2; pos < head.length;) {
         const end = head.indexOf('\r\n', pos), colon = head.indexOf(':', pos);
         if (end === pos) break;
         if (end < 0 || colon <= pos || colon >= end) { reject(); return false; }
-        const name = head.slice(pos, colon).toLowerCase(), value = head.slice(colon + 1, end).trim();
+        // Skip values of headers the forge never uses. Still validate every line and
+        // process framing fields on every request, including duplicate length checks.
+        const length = colon - pos;
+        if (length !== 4 && length !== 6 && length !== 10 && length !== 12 && length !== 13 && length !== 14 && length !== 17) { pos = end + 2; continue; }
+        const name = head.slice(pos, colon).toLowerCase();
+        if (name !== 'authorization' && name !== 'git-protocol' && name !== 'host' && name !== 'content-length' && name !== 'connection' && name !== 'transfer-encoding' && name !== 'expect') { pos = end + 2; continue; }
+        const value = head.slice(colon + 1, end).trim();
         if (name === 'authorization') request.authorization = value;
         else if (name === 'git-protocol') request.gitProtocol = value;
         else if (name === 'host') request.host = value;
@@ -67,13 +77,14 @@ export function createTransport() {
         pos = end + 2;
       }
       if (contentLength && transfer) { reject(); return false; }
-      chunks = []; total = 0; chunkRemaining = -1; trailers = false;
+      if (chunked) { chunks = []; total = 0; chunkRemaining = -1; trailers = false; }
+      hasHeaders = true;
       return true;
     }
     function consume(): void {
       try {
         while (!waiting && !ended) {
-          if (!request) {
+          if (!hasHeaders) {
             const end = pending.indexOf('\r\n\r\n');
             if (end < 0) { if (pending.length > 65536) reject(); return; }
             if (!parseHeaders(pending.subarray(0, end + 4))) return;
@@ -81,7 +92,8 @@ export function createTransport() {
           }
           if (!chunked) {
             if (pending.length < remaining) return;
-            const body = pending.subarray(0, remaining); pending = pending.subarray(remaining);
+            const body = remaining ? pending.subarray(0, remaining) : empty;
+            pending = pending.length === remaining ? empty : pending.subarray(remaining);
             if (!respond(body)) return;
           } else {
             let complete = false;
@@ -110,7 +122,15 @@ export function createTransport() {
         }
       } catch { reject(); }
     }
-    socket.on('data', (data: Buffer) => { pending = pending.length ? Buffer.concat([pending, data]) : data; consume(); });
+    socket.on('data', (data: Buffer) => {
+      // A byte-identical, bodyless GET on this socket has identical framing and
+      // credentials. Reuse its parsed fields, but route again so mutations and
+      // repository deletion/recreation remain visible immediately.
+      if (lastGet && !pending.length && !hasHeaders && !waiting && !ended && data.equals(lastGet)) { respond(empty); return; }
+      const whole = !pending.length && !hasHeaders;
+      pending = pending.length ? Buffer.concat([pending, data]) : data; consume();
+      if (whole && !pending.length && !hasHeaders && !ended && !chunked && !remaining && request.method === 'GET' && data.indexOf('\r\n\r\n') === data.length - 4) lastGet = data;
+    });
     socket.on('drain', () => { waiting = false; socket.resume(); consume(); });
     socket.on('error', () => socket.destroy());
     socket.on('end', () => { if (!ended) { ended = true; socket.end(); } });

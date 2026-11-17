@@ -6,6 +6,8 @@
 
 Starting runtime `1bb820e`: push p50 56.253 ms / CPU 32.308 ms; clone 20.859 / 14.644; read 110.399 / 21.150; write 17.871 / 4.439. These warmed standalone timings are separate from full grading. A fresh baseline full grade passed 120/120 and replay, score 1000, perf_p50_us 53767 (push 77.760 ms, clone 21.964, read 190.114, write 25.739).
 
+The socket parser now reuses its request record, skips unused header values, and recognizes byte-identical bodyless GET headers on the same socket. It still routes every request against the current store. In a three-process paired comparison, read CPU fell from 20.960 to 18.599 ms per round (11.3%). Framing and protocol tests pass. `test/cpu-compare.ts` supports comparisons against an earlier runtime materialized in the uncommitted `test/.baseline/` directory.
+
 All measurements use the supplied network-less `./dock` container. No real-server regrade of the new commit was performed. The reported starting server result was score 936, perf 136 and perf_p50_us 492573; local scores remain capped at 1000, so local timing and server CPU are the useful comparisons.
 
 ## Full grader results
