@@ -10,11 +10,13 @@ const variants = JSON.parse(process.env.FORGE_CPU_VARIANTS || '[{"name":"current
 for (let repeat = 0; repeat < repeats; repeat++) {
  for (const variant of variants) {
   const child = fork(new URL('./serve.ts', import.meta.url), [], {
+    execArgv: [...process.execArgv, ...(variant.flags || [])],
     env: { ...process.env, ...variant.env, FORGE_TEST_APP: variant.app, MAKEFUN_SHOP_TOKEN: 'local-test-token' },
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
   });
   const port = await new Promise<number>((resolve, reject) => {
     child.once('message', (message: any) => resolve(message.port)); child.once('error', reject);
+    child.once('exit', code => reject(new Error(`Server exited before listening: ${code}`)));
   });
   const queue: ((value: any) => void)[] = [];
   child.on('message', message => queue.shift()?.(message));

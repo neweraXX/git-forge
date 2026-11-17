@@ -1,6 +1,3 @@
-if (process.env.FORGE_TEST_V8_FLAGS) {
-  const { setFlagsFromString } = await import('node:v8'); setFlagsFromString(process.env.FORGE_TEST_V8_FLAGS);
-}
 const { createApp } = await import(process.env.FORGE_TEST_APP || '../app.ts');
 const server = createApp();
 await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));

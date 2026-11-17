@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { hash as digest } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { Repository, Failure, requireValue, zero, hash, type Obj } from './store.ts';
 import { inflateObject, consumed } from './inflate.ts';
@@ -13,17 +13,21 @@ export function pkt(payload: Buffer | string): Buffer {
   if (typeof payload === 'string') result.write(payload, 4); else payload.copy(result, 4);
   return result;
 }
-function packets(body: Buffer, stopAtFlush = false): { lines: Buffer[]; offset: number } {
-  const lines: Buffer[] = [];
+const hex = new Int16Array(256).fill(-1);
+for (let i = 0; i < 10; i++) hex[48 + i] = i;
+for (let i = 0; i < 6; i++) hex[65 + i] = hex[97 + i] = i + 10;
+function packets(body: Buffer, stopAtFlush = false): { lines: string[]; offset: number } {
+  const lines: string[] = [];
   let offset = 0;
   while (offset < body.length) {
-    const head = body.toString('ascii', offset, offset + 4);
-    if (!/^[0-9a-fA-F]{4}$/.test(head)) throw new Failure(400, 'Invalid pkt-line');
-    const length = parseInt(head, 16); offset += 4;
+    if (offset + 4 > body.length) throw new Failure(400, 'Invalid pkt-line');
+    const a = hex[body[offset]], b = hex[body[offset + 1]], c = hex[body[offset + 2]], d = hex[body[offset + 3]];
+    if ((a | b | c | d) < 0) throw new Failure(400, 'Invalid pkt-line');
+    const length = (a << 12) | (b << 8) | (c << 4) | d; offset += 4;
     if (length === 0) { if (stopAtFlush) break; continue; }
     if (length === 1 || length === 2) continue;
     if (length < 4 || length > 65520 || offset + length - 4 > body.length) throw new Failure(400, 'Truncated pkt-line');
-    lines.push(body.subarray(offset, offset + length - 4)); offset += length - 4;
+    lines.push(body.toString('utf8', offset, offset + length - 4)); offset += length - 4;
   }
   return { lines, offset };
 }
@@ -71,7 +75,7 @@ export function unpack(r: Repository, pack: Buffer): void {
   const version = pack.readUInt32BE(4), count = pack.readUInt32BE(8);
   requireValue((version === 2 || version === 3) && count < 1000000, 400, 'Invalid pack version or count');
   const end = pack.length - 20;
-  requireValue(createHash('sha1').update(pack.subarray(0, end)).digest().equals(pack.subarray(end)), 400, 'Pack checksum mismatch');
+  requireValue(digest('sha1', pack.subarray(0, end), 'buffer').equals(pack.subarray(end)), 400, 'Pack checksum mismatch');
   let pos = 12;
   const offsets = new Map<number, Obj>(), staged = new Map<string, Obj>();
   const pending: { offset: number; baseOffset?: number; baseOid?: string; data: Buffer }[] = [];
@@ -118,7 +122,7 @@ function packedObject(object: Obj): Buffer {
 function packObjects(r: Repository, ids: Set<string>): Buffer {
   const header = Buffer.alloc(12); header.write('PACK'); header.writeUInt32BE(2, 4); header.writeUInt32BE(ids.size, 8);
   const body = Buffer.concat([header, ...[...ids].map(oid => packedObject(requireValue(r.objects.get(oid))))]);
-  return Buffer.concat([body, createHash('sha1').update(body).digest()]);
+  return Buffer.concat([body, digest('sha1', body, 'buffer')]);
 }
 function closure(r: Repository, tips: string[], boundaries = new Set<string>(), depth = Infinity): { ids: Set<string>; shallow: Set<string> } {
   const ids = new Set<string>(), shallow = new Set<string>(), commitDepth = new Map<string, number>();
@@ -168,22 +172,27 @@ function refs(r: Repository): [string, string][] {
   return list;
 }
 const v2Advertisement = Buffer.concat(['version 2\n', 'agent=forge/1\n', 'ls-refs=unborn\n', 'fetch=shallow\n', 'object-format=sha1\n'].map(pkt).concat([flush]));
+function packetText(payload: string): string {
+  const length = Buffer.byteLength(payload);
+  if (length > 65516) throw new Failure(400, 'Packet too large');
+  return (length + 4).toString(16).padStart(4, '0') + payload;
+}
 export function advertise(r: Repository, service: string, v2: boolean): Buffer {
   if (service === 'git-upload-pack' && v2) return v2Advertisement;
   const cacheKey = `advertise:${service}`, cached = r.refResponses.get(cacheKey);
   if (cached) return cached;
   const caps = service === 'git-receive-pack' ? 'report-status side-band-64k delete-refs ofs-delta agent=forge/1' : `multi_ack_detailed side-band-64k ofs-delta shallow symref=HEAD:refs/heads/${r.default_branch} agent=forge/1`;
-  const list = refs(r), out = [pkt(`# service=${service}\n`), flush];
-  if (!list.length) out.push(pkt(`${zero} capabilities^{}\0${caps}\n`));
+  const list = refs(r);
+  let out = packetText(`# service=${service}\n`) + '0000';
+  if (!list.length) out += packetText(`${zero} capabilities^{}\0${caps}\n`);
   else list.forEach(([name, oid], index) => {
-    out.push(pkt(`${oid} ${name}${index === 0 ? '\0' + caps : ''}\n`));
-    const peel = peeled(r, oid); if (peel) out.push(pkt(`${peel} ${name}^{}\n`));
+    out += packetText(`${oid} ${name}${index === 0 ? '\0' + caps : ''}\n`);
+    const peel = peeled(r, oid); if (peel) out += packetText(`${peel} ${name}^{}\n`);
   });
-  out.push(flush);
-  const result = Buffer.concat(out); r.refResponses.set(cacheKey, result); return result;
+  const result = Buffer.from(out + '0000'); r.refResponses.set(cacheKey, result); return result;
 }
 export function receive(r: Repository, body: Buffer): Buffer {
-  const parsed = packets(body, true), lines = parsed.lines.map(b => b.toString());
+  const parsed = packets(body, true), lines = parsed.lines;
   const side = lines[0]?.split('\0')[1]?.includes('side-band-64k');
   const commands = lines.map(line => {
     const [old, next, ref] = line.split('\0')[0].trim().split(' ');
@@ -219,7 +228,7 @@ export function receive(r: Repository, body: Buffer): Buffer {
 export function upload(r: Repository, body: Buffer, v2: boolean): Buffer {
   const key = `${v2 ? 2 : 0}:${body.toString('base64')}`;
   const cached = r.fetchCache.get(key) || r.refResponses.get(key); if (cached) return cached;
-  const lines = packets(body).lines.map(b => b.toString().trim());
+  const lines = packets(body).lines.map(line => line.trim());
   if (lines.includes('command=ls-refs')) {
     const prefixes = lines.filter(l => l.startsWith('ref-prefix ')).map(l => l.slice(11));
     const out: Buffer[] = [];

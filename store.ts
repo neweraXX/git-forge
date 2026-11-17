@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, hash as digest } from 'node:crypto';
 
 export type Obj = { type: string; data: Buffer; packed?: Buffer; commit?: any; entries?: { mode: string; name: string; oid: string }[] };
 export const stamp = process.env.MAKEFUN_TRIAL_NOW || '2026-01-01T00:00:00.000Z';
@@ -14,6 +14,11 @@ export function responseBytes(value: any): Buffer | string {
   return value === undefined ? '' : JSON.stringify(value);
 }
 export function hash(type: string, data: Buffer): string {
+  if (data.length <= 4096) {
+    const header = `${type} ${data.length}\0`, bytes = Buffer.allocUnsafe(Buffer.byteLength(header) + data.length);
+    const offset = bytes.write(header); data.copy(bytes, offset);
+    return digest('sha1', bytes);
+  }
   return createHash('sha1').update(`${type} ${data.length}\0`).update(data).digest('hex');
 }
 export class Failure extends Error {
@@ -114,7 +119,11 @@ export class Repository {
     return this.put('commit', `tree ${tree}\n${parents.map(p => `parent ${p}\n`).join('')}author Forge <forge@example.invalid> ${epoch} +0000\ncommitter Forge <forge@example.invalid> ${epoch} +0000\n\n${message}\n`);
   }
   ancestor(older: string, newer: string): boolean {
-    const queue = [newer], seen = new Set<string>();
+    if (older === newer) return true;
+    const parents = this.commit(newer)?.parents;
+    if (!parents) return false;
+    if (parents.includes(older)) return true;
+    const queue: string[] = parents.slice(), seen = new Set<string>();
     while (queue.length) {
       const oid = queue.pop()!;
       if (oid === older) return true;

@@ -12,6 +12,8 @@ Packed Git objects reuse one native inflater, resetting it for each independent 
 
 The transport also has optional native socket read/write adapters, with standard stream fallbacks when their bindings are unavailable (`FORGE_READER=stream`, `FORGE_WRITER=stream` force those fallbacks). The parser owns read buffering; queued writes retain their bytes and pause parsing until completion. A write wrapper is reused only for synchronous writes and replaced before an asynchronous completion resumes parsing. The expanded transport test exercises 16 MiB of pipelined responses to a paused reader, plus mutation/auth invalidation on one reused connection. In separate paired comparisons the writer reduced read CPU 19.432→17.944 ms, and the reader reduced push 24.298→22.612, clone 10.768→7.146, read 17.710→16.082, write 4.634→4.315 ms.
 
+Small object IDs and pack checksums use Node's one-shot SHA-1 API. Git packet parsing decodes hexadecimal lengths directly and creates strings without intermediate Buffer views; ref advertisements use one final encoding allocation; immediate-parent fast-forward checks avoid allocating a traversal set. Separate paired comparisons reduced push CPU 21.975→20.482 ms for hashing, then 20.858→18.979 ms for the remaining Git changes. Checksums, delta resolution, ref rules and graph validation remain enforced.
+
 All measurements use the supplied network-less `./dock` container. No real-server regrade of the new commit was performed. The reported starting server result was score 936, perf 136 and perf_p50_us 492573; local scores remain capped at 1000, so local timing and server CPU are the useful comparisons.
 
 ## Full grader results
