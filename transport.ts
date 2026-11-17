@@ -1,5 +1,7 @@
 import { createServer, type Socket } from 'node:net';
 import { createHandler, type Request, type Reply } from './router.ts';
+import { createWriter } from './writer.ts';
+import { readDirect } from './reader.ts';
 
 const empty = Buffer.alloc(0);
 const reasons: Record<number, string> = { 200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No Content', 400: 'Bad Request', 401: 'Unauthorized', 404: 'Not Found', 405: 'Method Not Allowed', 409: 'Conflict', 413: 'Content Too Large', 422: 'Unprocessable Entity', 500: 'Internal Server Error' };
@@ -22,6 +24,7 @@ export function createTransport() {
   const handle = createHandler();
   return createServer(socket => {
     socket.setNoDelay(true); socket.setTimeout(60000, () => socket.destroy());
+    const write = createWriter(socket);
     let pending: Buffer = empty, hasHeaders = false;
     const request: Request = { method: '', url: '', body: empty, authorization: undefined, gitProtocol: undefined, host: undefined };
     let lastGet: Buffer | undefined;
@@ -37,7 +40,7 @@ export function createTransport() {
       const result = handle(request); hasHeaders = false;
       const bytes = encode(result, close);
       if (close) { ended = true; socket.end(bytes); return false; }
-      if (!socket.write(bytes)) { waiting = true; socket.pause(); return false; }
+      if (!write(bytes)) { waiting = true; socket.pause(); return false; }
       return true;
     }
     function parseHeaders(bytes: Buffer): boolean {
@@ -122,7 +125,7 @@ export function createTransport() {
         }
       } catch { reject(); }
     }
-    socket.on('data', (data: Buffer) => {
+    const onData = (data: Buffer) => {
       // A byte-identical, bodyless GET on this socket has identical framing and
       // credentials. Reuse its parsed fields, but route again so mutations and
       // repository deletion/recreation remain visible immediately.
@@ -130,7 +133,8 @@ export function createTransport() {
       const whole = !pending.length && !hasHeaders;
       pending = pending.length ? Buffer.concat([pending, data]) : data; consume();
       if (whole && !pending.length && !hasHeaders && !ended && !chunked && !remaining && request.method === 'GET' && data.indexOf('\r\n\r\n') === data.length - 4) lastGet = data;
-    });
+    };
+    if (!readDirect(socket, onData)) socket.on('data', onData);
     socket.on('drain', () => { waiting = false; socket.resume(); consume(); });
     socket.on('error', () => socket.destroy());
     socket.on('end', () => { if (!ended) { ended = true; socket.end(); } });
