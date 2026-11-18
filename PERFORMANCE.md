@@ -1,5 +1,28 @@
 # Performance measurements
 
+## Go port (2026-11-18)
+
+The stdlib-only Go 1.24 port in `forge/` implements Git v0/v2, packs and deltas, REST, GraphQL, MCP and the shared deterministic store. Both static Linux binaries are committed. `FORGE_SERVER=go` enables the candidate; **Node remains the default because Go did not demonstrate a reliable full-grade native timing win**. Its launcher copies the selected binary to /tmp, checks startup and health, registers its port, and kills it on exit. Missing, unexecutable, invalid-port, dead-port and five-second timeout cases all fall back to Node.
+
+The final three-instance comparison (`./dock node test/go-grade-compare.ts`, native arm64, Node 26, two shared CPUs) measured:
+
+| Measurement | Node | Go |
+| --- | ---: | ---: |
+| Mean perf_p50_us across three instances | 41884.667 | 41842.667 |
+| Median instance perf_p50_us | 41761 | 41910 |
+| Push p50 ms, median across instances | 51.535 | 50.143 |
+| Clone p50 ms, median across instances | 14.549 | 15.246 |
+| Read p50 ms, median across instances | 176.253 | 174.763 |
+| Write p50 ms, median across instances | 21.741 | 23.149 |
+
+An independent `./dock grade 3` with Go selected measured 42036, 42425 and 43010 us (mean 42490.333). Every Go instance passed 120/120, scored 1000, and replayed byte for byte. `./dock grade-amd64 3` also passed 120/120 on all three instances with matching replays and score 1000 each; emulation timings are not used. All-pass state hash remains `a0e98d49854b961230227867235c8615858e006db3763f341ac6154af1445590`. No real-server regrade was performed.
+
+After restoring the Node default, both required three-instance commands were repeated: native timings 42591, 42702 and 42714 us (mean 42669), and 120/120 with matching replays on all native and amd64 instances. Two consecutive final builds at the same source/VCS state matched: amd64 SHA-256 `c4ecf866859885d6f408da0684b3dd965b4e4f4df2738d12fbd95128f571af23`, arm64 `957dd790dd9146a8e08711581fb952407cfbc3e2cbf64023cfdc2419bdfa21d3`.
+
+The warmed direct benchmark (`./dock node test/go-bench.ts`) removes the lifecycle forwarder and shows a larger improvement: median 32533→25374 us for Node→Go, with push/read server CPU approximately 15→5 and 15→10 ms per round. CPU is sampled from /proc in 10 ms ticks and averaged across four rounds; these coarse diagnostics are not full-grade timing. Go uses a single-threaded nonblocking epoll loop, cached complete HTTP responses and immutable Git responses, and pooled zlib inflaters. The net/http and net.Conn alternatives were slower. Tested GOGC 100/200/500, one/two workers, and 64/128/384 MiB soft memory limits; selected one worker, GOGC=100 and 128 MiB. Two workers did not improve full grading.
+
+Validation includes `./dock gotest`, the 48-request Go/Node parity comparison, protocol and transport tests (deltas, checksum/closure rejection, fragments/directives, shared cache invalidation, chunking/trailers, pipelining, half-close, 100-continue and 16 MiB backpressure), and all six launcher cases. Binaries are 6,414,484 bytes amd64 and 6,094,996 bytes arm64, each below 8 MiB; the tracked tree is approximately 12.2 MiB, below 16 MiB. README badges and owner metadata were untouched. The retained runtime milestone is `9f4cb26`; the final commit also records the conservative Node default and these results.
+
 ## Round 3 results (2026-11-17)
 
 The starting runtime is `1bb820e`; retained runtime changes end at `86d26b7`. `test/workload-cpu.ts` runs the sealed workloads against a separate server process and samples its `process.cpuUsage()` over IPC. CPU is the average of rounds 2–5, then the median across three fresh processes; setup, warm-up and round one are excluded. Client CPU is excluded; background JIT and GC are included. Sequential requests can race one snapshot; a concurrent clone burst can straddle a boundary. The harness also records whole-workload CPU including setup.

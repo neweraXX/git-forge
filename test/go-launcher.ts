@@ -32,7 +32,7 @@ for (const mode of ['binary', 'missing', 'unexecutable', 'invalid-port', 'dead-p
   });
   await new Promise<void>(resolve => lifecycle.listen(0, '127.0.0.1', resolve));
   const started = performance.now();
-  const child = spawn(process.execPath, [join(directory, 'main.ts')], { env: { ...process.env, MAKEFUN_ENV_URL: `http://127.0.0.1:${(lifecycle.address() as any).port}`, MAKEFUN_SHOP_TOKEN: 'launcher-test', FORGE_LOGIN: '' }, stdio: ['ignore', 'ignore', 'pipe'] });
+  const child = spawn(process.execPath, [join(directory, 'main.ts')], { env: { ...process.env, MAKEFUN_ENV_URL: `http://127.0.0.1:${(lifecycle.address() as any).port}`, MAKEFUN_SHOP_TOKEN: 'launcher-test', FORGE_LOGIN: '', FORGE_SERVER: 'go' }, stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = ''; child.stderr.on('data', chunk => stderr += chunk);
   const timeout = setTimeout(() => child.kill('SIGKILL'), 15000);
   try {

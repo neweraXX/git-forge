@@ -5,7 +5,7 @@ import { join } from 'node:path';
 const runtime = ['main', 'app', 'router', 'transport', 'reader', 'writer', 'store', 'rest', 'git', 'inflate', 'graphql', 'mcp'];
 const variants = [
   { name: 'node', env: { FORGE_SERVER: 'node' } },
-  { name: 'go', env: { FORGE_GO_HTTP: 'epoll', FORGE_PROCS: '1' } },
+  { name: 'go', env: { FORGE_SERVER: 'go', FORGE_GO_HTTP: 'epoll', FORGE_PROCS: '1' } },
 ];
 for (const variant of variants) {
   const directory = mkdtempSync('/tmp/forge-grade-bot-');

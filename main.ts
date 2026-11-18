@@ -48,16 +48,19 @@ async function stopBinary(): Promise<void> {
   if (directory) await rm(directory, { recursive: true, force: true });
 }
 let port: number;
+const useGo = process.env.FORGE_SERVER === 'go';
 function terminate(): void { child?.kill('SIGKILL'); server?.close(); process.exit(0); }
 process.once('SIGTERM', terminate); process.once('SIGINT', terminate);
 process.once('exit', () => child?.kill('SIGKILL'));
 try {
-  if (process.env.FORGE_SERVER === 'node') throw new Error('Node server requested');
+  // The Go port passes conformance, but full-grade native timing is still tied.
+  // Keep the measured Node default; FORGE_SERVER=go enables the candidate.
+  if (!useGo) throw new Error('Node server requested');
   port = await startBinary();
   process.stderr.write(`Forge Go server listening on ${port}\n`);
 } catch (error) {
   await stopBinary();
-  if (process.env.FORGE_SERVER !== 'node') process.stderr.write(`Forge binary fallback: ${String(error)}\n`);
+  if (useGo) process.stderr.write(`Forge binary fallback: ${String(error)}\n`);
   server = createApp();
   await new Promise<void>(resolve => server!.listen(0, '0.0.0.0', resolve));
   port = (server.address() as { port: number }).port;
