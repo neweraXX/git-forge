@@ -1,8 +1,20 @@
 # Performance measurements
 
-## Go port (2026-11-18)
+## Go default and verified runtime (2026-11-18 follow-up)
 
-The stdlib-only Go 1.24 port in `forge/` implements Git v0/v2, packs and deltas, REST, GraphQL, MCP and the shared deterministic store. Both static Linux binaries are committed. `FORGE_SERVER=go` enables the candidate; **Node remains the default because Go did not demonstrate a reliable full-grade native timing win**. Its launcher copies the selected binary to /tmp, checks startup and health, registers its port, and kills it on exit. Missing, unexecutable, invalid-port, dead-port and five-second timeout cases all fall back to Node.
+Go is now the default. `FORGE_SERVER=node` opts out for direct local comparisons. Node imports its fallback application only after a startup failure or explicit opt-out; during normal Go serving it runs only the lifecycle loop. No Go source or binary changed in this follow-up.
+
+The process driver does not pass `FORGE_SERVER` through to the entry. An environment-only selection cannot establish which runtime a grade measured; the earlier decision to keep Node based on noisy wall times is superseded. Use an entry that defaults to Go, or patch the entry itself, and verify the trial stderr. The supplied follow-up CPU measurements were approximately 160–200 ms for the Go child versus 250 ms of Node serving CPU per whole trial (Node total including startup approximately 400–490 ms); these are the user's measurements, not a new measurement here.
+
+With Go as the entry default, `./dock grade 3` passed 120/120 and scored 1000 on every instance, with byte-identical replays. Native perf_p50_us values were **42226, 42728, 42057** (mean **42337**). `./dock grade-amd64 3` also passed 120/120 and scored 1000 on every instance with byte-identical replays; its emulated timings are not performance evidence.
+
+`./dock node test/go-launcher.ts` verifies the default with `FORGE_SERVER` absent and the Node application modules absent, the missing-file and unexecutable-binary fallbacks, invalid/dead ports, startup timeout, and the Node opt-out. Node main used **0 ms CPU at 10 ms tick resolution while Go served 300 requests**. The startup timer is cleared; no new serving timers or polling loops were added.
+
+The helper containers discard successful stderr, so `./dock node test/go-grade-logged.ts` retains separate three-instance runs, asserts the Go listener line and absence of fallback in every trial, and checks all 120 passes plus replay matches. It tests the native binary with the unchanged default entry and the committed amd64 binary through binfmt with only the snapshot's binary selection forced; the latter is separate from the full amd64 Node/container grade above.
+
+## Initial Go port measurements (historical)
+
+The stdlib-only Go 1.24 port in `forge/` implements Git v0/v2, packs and deltas, REST, GraphQL, MCP and the shared deterministic store. Both static Linux binaries are committed. Node was initially retained as default; this decision is superseded above. The launcher copies the selected binary to /tmp, checks startup and health, registers its port, and kills it on exit. Missing, unexecutable, invalid-port, dead-port and five-second timeout cases all fall back to Node. Historical environment-only Go labels below are not proof that Go served a run; use the verified follow-up results above.
 
 The final three-instance comparison (`./dock node test/go-grade-compare.ts`, native arm64, Node 26, two shared CPUs) measured:
 
@@ -21,7 +33,7 @@ After restoring the Node default, both required three-instance commands were rep
 
 The warmed direct benchmark (`./dock node test/go-bench.ts`) removes the lifecycle forwarder and shows a larger improvement: median 32533→25374 us for Node→Go, with push/read server CPU approximately 15→5 and 15→10 ms per round. CPU is sampled from /proc in 10 ms ticks and averaged across four rounds; these coarse diagnostics are not full-grade timing. Go uses a single-threaded nonblocking epoll loop, cached complete HTTP responses and immutable Git responses, and pooled zlib inflaters. The net/http and net.Conn alternatives were slower. Tested GOGC 100/200/500, one/two workers, and 64/128/384 MiB soft memory limits; selected one worker, GOGC=100 and 128 MiB. Two workers did not improve full grading.
 
-Validation includes `./dock gotest`, the 48-request Go/Node parity comparison, protocol and transport tests (deltas, checksum/closure rejection, fragments/directives, shared cache invalidation, chunking/trailers, pipelining, half-close, 100-continue and 16 MiB backpressure), and all six launcher cases. Binaries are 6,414,484 bytes amd64 and 6,094,996 bytes arm64, each below 8 MiB; the tracked tree is approximately 12.2 MiB, below 16 MiB. README badges and owner metadata were untouched. The retained runtime milestone is `9f4cb26`; the final commit also records the conservative Node default and these results.
+Validation includes `./dock gotest`, the 48-request Go/Node parity comparison, protocol and transport tests (deltas, checksum/closure rejection, fragments/directives, shared cache invalidation, chunking/trailers, pipelining, half-close, 100-continue and 16 MiB backpressure), and all six initial launcher cases. Binaries are 6,414,484 bytes amd64 and 6,094,996 bytes arm64, each below 8 MiB; the tracked tree is approximately 12.2 MiB, below 16 MiB. README badges and owner metadata were untouched. The initial Go runtime milestone is `9f4cb26`; `52cdb6e` recorded the now-superseded Node default and these initial results.
 
 ## Round 3 results (2026-11-17)
 

@@ -1,4 +1,3 @@
-import { createApp } from './app.ts';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { copyFile, chmod, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const endpoint = process.env.MAKEFUN_ENV_URL?.replace(/\/$/, '');
 if (!endpoint) throw new Error('MAKEFUN_ENV_URL is required');
 let child: ChildProcess | undefined, directory: string | undefined;
-let server: ReturnType<typeof createApp> | undefined;
+let server: ReturnType<typeof import('./app.ts').createApp> | undefined;
 async function startBinary(): Promise<number> {
   directory = await mkdtemp(join(tmpdir(), 'forge-'));
   const binary = join(directory, 'forge');
@@ -48,19 +47,18 @@ async function stopBinary(): Promise<void> {
   if (directory) await rm(directory, { recursive: true, force: true });
 }
 let port: number;
-const useGo = process.env.FORGE_SERVER === 'go';
+const useGo = process.env.FORGE_SERVER !== 'node';
 function terminate(): void { child?.kill('SIGKILL'); server?.close(); process.exit(0); }
 process.once('SIGTERM', terminate); process.once('SIGINT', terminate);
 process.once('exit', () => child?.kill('SIGKILL'));
 try {
-  // The Go port passes conformance, but full-grade native timing is still tied.
-  // Keep the measured Node default; FORGE_SERVER=go enables the candidate.
   if (!useGo) throw new Error('Node server requested');
   port = await startBinary();
   process.stderr.write(`Forge Go server listening on ${port}\n`);
 } catch (error) {
   await stopBinary();
   if (useGo) process.stderr.write(`Forge binary fallback: ${String(error)}\n`);
+  const { createApp } = await import('./app.ts');
   server = createApp();
   await new Promise<void>(resolve => server!.listen(0, '0.0.0.0', resolve));
   port = (server.address() as { port: number }).port;
