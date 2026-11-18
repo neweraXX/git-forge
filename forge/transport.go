@@ -70,13 +70,20 @@ type framing struct {
 }
 
 func parseHeaders(head []byte) (req Request, f framing) {
-	lines := bytes.Split(head, []byte("\r\n"))
-	first := strings.Split(string(lines[0]), " ")
-	need(len(first) == 3 && (first[2] == "HTTP/1.1" || first[2] == "HTTP/1.0") && first[0] != "", 400, "Bad Request")
-	req.method, req.path = first[0], first[1]
-	f.close = first[2] == "HTTP/1.0"
+	end := bytes.Index(head, []byte("\r\n"))
+	need(end >= 0, 400, "Bad Request")
+	first := string(head[:end])
+	a, b := strings.IndexByte(first, ' '), strings.LastIndexByte(first, ' ')
+	need(a > 0 && b > a && (first[b+1:] == "HTTP/1.1" || first[b+1:] == "HTTP/1.0") && !strings.Contains(first[a+1:b], " "), 400, "Bad Request")
+	req.method, req.path = first[:a], first[a+1:b]
+	f.close = first[b+1:] == "HTTP/1.0"
 	length, transfer := false, false
-	for _, line := range lines[1:] {
+	for pos := end + 2; pos < len(head); {
+		end = bytes.Index(head[pos:], []byte("\r\n"))
+		need(end >= 0, 400, "Bad Request")
+		end += pos
+		line := head[pos:end]
+		pos = end + 2
 		if len(line) == 0 {
 			break
 		}
@@ -87,41 +94,44 @@ func parseHeaders(head []byte) (req Request, f framing) {
 		default:
 			continue
 		}
-		name := strings.ToLower(string(line[:colon]))
-		switch name {
-		case "authorization", "git-protocol", "host", "content-length", "connection", "transfer-encoding", "expect":
-		default:
-			continue
-		}
-		value := strings.TrimSpace(string(line[colon+1:]))
-		switch name {
-		case "authorization":
-			req.authorization = value
-		case "git-protocol":
-			req.gitProtocol = value
-		case "host":
-			req.host = value
-		case "content-length":
-			need(!length && value != "", 400, "Bad Request")
+		name, value := line[:colon], bytes.TrimSpace(line[colon+1:])
+		switch {
+		case bytes.EqualFold(name, []byte("authorization")):
+			req.authorization = string(value)
+		case bytes.EqualFold(name, []byte("git-protocol")):
+			req.gitProtocol = string(value)
+		case bytes.EqualFold(name, []byte("host")):
+			req.host = string(value)
+		case bytes.EqualFold(name, []byte("content-length")):
+			need(!length && len(value) > 0, 400, "Bad Request")
+			n := 0
+			overflow := false
 			for _, b := range value {
 				need(b >= '0' && b <= '9', 400, "Bad Request")
+				if n > maxBody/10 {
+					overflow = true
+				} else {
+					n = n*10 + int(b-'0')
+					if n > maxBody {
+						overflow = true
+					}
+				}
 			}
-			n, e := strconv.ParseUint(value, 10, 64)
-			need(e == nil && n <= maxBody, 413, "Request too large")
+			need(!overflow && n <= maxBody, 413, "Request too large")
 			length = true
-			f.length = int(n)
-		case "connection":
-			if strings.EqualFold(value, "close") {
+			f.length = n
+		case bytes.EqualFold(name, []byte("connection")):
+			if bytes.EqualFold(value, []byte("close")) {
 				f.close = true
-			} else if strings.EqualFold(value, "keep-alive") {
+			} else if bytes.EqualFold(value, []byte("keep-alive")) {
 				f.close = false
 			}
-		case "transfer-encoding":
-			need(!transfer && strings.EqualFold(value, "chunked"), 400, "Bad Request")
+		case bytes.EqualFold(name, []byte("transfer-encoding")):
+			need(!transfer && bytes.EqualFold(value, []byte("chunked")), 400, "Bad Request")
 			transfer = true
 			f.chunked = true
-		case "expect":
-			f.expect = strings.EqualFold(value, "100-continue")
+		case bytes.EqualFold(name, []byte("expect")):
+			f.expect = bytes.EqualFold(value, []byte("100-continue"))
 		}
 	}
 	need(!(length && transfer), 400, "Bad Request")

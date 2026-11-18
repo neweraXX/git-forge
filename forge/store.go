@@ -104,7 +104,11 @@ func jsonBytes(v any) []byte {
 	return bytes.TrimSuffix(b.Bytes(), []byte{'\n'})
 }
 func global(kind string, id int) string {
-	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%d", kind, id)))
+	var buffer [96]byte
+	data := append(buffer[:0], kind...)
+	data = append(data, ':')
+	data = strconv.AppendInt(data, int64(id), 10)
+	return base64.StdEncoding.EncodeToString(data)
 }
 func hashObject(kind string, data []byte) string {
 	var header [96]byte
@@ -138,23 +142,24 @@ type Commit struct {
 }
 type Entry struct{ mode, name, oid string }
 type Repository struct {
-	id                                       int
-	name, description, branch                string
-	private                                  bool
-	refs                                     map[string]string
-	refOrder                                 []string
-	objects                                  map[string]*Object
-	issues, pulls                            map[int]M
-	labels                                   map[string]M
-	labelOrder                               []string
-	nextNumber                               int
-	fetchCache, refResponses, receiveReports map[string][]byte
-	validated                                map[string]bool
-	issueBytes                               map[int][]byte
+	id                           int
+	name, description, branch    string
+	private                      bool
+	refs                         map[string]string
+	refOrder                     []string
+	objects                      map[string]*Object
+	issues, pulls                map[int]M
+	labels                       map[string]M
+	labelOrder                   []string
+	nextNumber                   int
+	fetchCache, lsRefsCache      [2]map[string][]byte
+	refResponses, receiveReports map[string][]byte
+	validated                    map[string]bool
+	issueBytes                   map[int][]byte
 }
 
 func newRepository(id int, in M) *Repository {
-	return &Repository{id: id, name: str(in["name"]), description: fallback(in["description"], ""), branch: fallback(in["default_branch"], "main"), private: truth(in["private"]), refs: map[string]string{}, objects: map[string]*Object{}, issues: map[int]M{}, pulls: map[int]M{}, labels: map[string]M{}, nextNumber: 1, fetchCache: map[string][]byte{}, refResponses: map[string][]byte{}, receiveReports: map[string][]byte{}, validated: map[string]bool{}, issueBytes: map[int][]byte{}}
+	return &Repository{id: id, name: str(in["name"]), description: fallback(in["description"], ""), branch: fallback(in["default_branch"], "main"), private: truth(in["private"]), refs: map[string]string{}, objects: map[string]*Object{}, issues: map[int]M{}, pulls: map[int]M{}, labels: map[string]M{}, nextNumber: 1, refResponses: map[string][]byte{}, receiveReports: map[string][]byte{}, validated: map[string]bool{}, issueBytes: map[int][]byte{}}
 }
 func (r *Repository) put(kind string, data []byte) string {
 	oid := hashObject(kind, data)
@@ -196,7 +201,13 @@ func (r *Repository) setRef(ref, oid string) {
 		}
 		r.refs[ref] = oid
 	}
+	r.clearRefResponses()
+}
+func (r *Repository) clearRefResponses() {
 	clear(r.refResponses)
+	for i := range r.lsRefsCache {
+		clear(r.lsRefsCache[i])
+	}
 }
 func (r *Repository) commit(oid string) *Commit {
 	o := r.objects[oid]
@@ -476,13 +487,21 @@ type Store struct {
 	repoOrder []string
 	nodes     map[string]*NodeRecord
 	nextID    int
+	userLogin string
+	userCache M
+	userJSON  []byte
 }
 
 func newStore() *Store {
 	return &Store{login: os.Getenv("FORGE_LOGIN"), repos: map[string]*Repository{}, nodes: map[string]*NodeRecord{}, nextID: 1}
 }
 func (s *Store) user() M {
-	return M{"login": fallback(s.login, "forge"), "id": 1, "node_id": global("User", 1), "type": "User"}
+	if s.userCache == nil || s.userLogin != s.login {
+		s.userLogin = s.login
+		s.userCache = M{"login": fallback(s.login, "forge"), "id": 1, "node_id": global("User", 1), "type": "User"}
+		s.userJSON = jsonBytes(s.userCache)
+	}
+	return s.userCache
 }
 func (s *Store) repo(owner, name string) *Repository {
 	if s.login == "" {

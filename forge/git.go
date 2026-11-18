@@ -429,8 +429,7 @@ func advertise(r *Repository, service string, v2 bool) []byte {
 	if service == "git-upload-pack" && v2 {
 		return v2Advertisement
 	}
-	key := "advertise:" + service
-	if b := r.refResponses[key]; b != nil {
+	if b := r.refResponses[service]; b != nil {
 		return b
 	}
 	caps := "report-status side-band-64k delete-refs ofs-delta agent=forge/1"
@@ -454,7 +453,7 @@ func advertise(r *Repository, service string, v2 bool) []byte {
 		}
 	}
 	out = append(out, flush...)
-	r.refResponses[key] = out
+	r.refResponses[service] = out
 	return out
 }
 
@@ -538,16 +537,16 @@ func receive(r *Repository, body []byte) []byte {
 	return stream
 }
 func upload(r *Repository, body []byte, v2 bool) []byte {
-	var key string
+	version := 0
 	if v2 {
-		key = "2:" + string(body)
-	} else {
-		key = "0:" + string(body)
+		version = 1
 	}
-	if b := r.fetchCache[key]; b != nil {
+	// A []byte-to-string map lookup borrows bytes for the lookup only. Copy a
+	// key only on a miss, when the immutable response is installed in the cache.
+	if b := r.fetchCache[version][string(body)]; b != nil {
 		return b
 	}
-	if b := r.refResponses[key]; b != nil {
+	if b := r.lsRefsCache[version][string(body)]; b != nil {
 		return b
 	}
 	lines, _ := packets(body, false)
@@ -588,10 +587,13 @@ func upload(r *Repository, body []byte, v2 bool) []byte {
 			out = append(out, packet(text+"\n")...)
 		}
 		out = append(out, flush...)
-		if len(r.refResponses) > 64 {
-			clear(r.refResponses)
+		if r.lsRefsCache[version] == nil {
+			r.lsRefsCache[version] = map[string][]byte{}
 		}
-		r.refResponses[key] = out
+		if len(r.lsRefsCache[version]) > 64 {
+			clear(r.lsRefsCache[version])
+		}
+		r.lsRefsCache[version][string(body)] = out
 		return out
 	}
 	wants, haves, boundaryOrder := []string{}, []string{}, []string{}
@@ -659,9 +661,12 @@ func upload(r *Repository, body []byte, v2 bool) []byte {
 		out = append(out, packet("NAK\n")...)
 	}
 	out = append(out, sideband(packObjects(r, ids))...)
-	if len(r.fetchCache) > 64 {
-		clear(r.fetchCache)
+	if r.fetchCache[version] == nil {
+		r.fetchCache[version] = map[string][]byte{}
 	}
-	r.fetchCache[key] = out
+	if len(r.fetchCache[version]) > 64 {
+		clear(r.fetchCache[version])
+	}
+	r.fetchCache[version][string(body)] = out
 	return out
 }

@@ -34,6 +34,7 @@ type Server struct {
 	wire       map[*byte]cachedWire
 	wireBytes  int
 	routes     map[string]*Route
+	scratch    []byte
 }
 type Route struct {
 	u       *url.URL
@@ -110,7 +111,11 @@ func (s *Server) handle(req Request) (reply Reply) {
 		switch {
 		case len(parts) == 5 && parts[3] == "info" && parts[4] == "refs" && req.method == "GET":
 			need(service == "git-upload-pack" || service == "git-receive-pack", 400, "Unknown git service")
-			return Reply{200, advertise(store.repo(owner, name), service, v2), "application/x-" + service + "-advertisement", nil}
+			kind := "application/x-git-upload-pack-advertisement"
+			if service == "git-receive-pack" {
+				kind = "application/x-git-receive-pack-advertisement"
+			}
+			return Reply{200, advertise(store.repo(owner, name), service, v2), kind, nil}
 		case len(parts) == 4 && req.method == "POST" && (parts[3] == "git-upload-pack" || parts[3] == "git-receive-pack"):
 			r := store.repo(owner, name)
 			var data []byte
@@ -119,7 +124,11 @@ func (s *Server) handle(req Request) (reply Reply) {
 			} else {
 				data = receive(r, req.body)
 			}
-			return Reply{200, data, "application/x-" + parts[3] + "-result", nil}
+			kind := "application/x-git-upload-pack-result"
+			if parts[3] == "git-receive-pack" {
+				kind = "application/x-git-receive-pack-result"
+			}
+			return Reply{200, data, kind, nil}
 		}
 	}
 	if len(parts) == 8 && parts[1] == "api" && parts[2] == "v3" && parts[3] == "repos" && parts[6] == "issues" && req.method == "GET" {
@@ -143,6 +152,11 @@ func (s *Server) handle(req Request) (reply Reply) {
 			}
 			return jsonReply(400, M{"message": "Invalid JSON"})
 		}
+	}
+	if len(parts) == 7 && parts[1] == "api" && parts[2] == "v3" && parts[3] == "repos" && parts[6] == "issues" && req.method == "POST" {
+		r := store.repo(parts[4], parts[5])
+		issue := store.createIssue(r, obj(input))
+		return s.createdIssue(r, issue)
 	}
 	if req.path == "/mcp" {
 		result := store.mcp(obj(input))

@@ -130,7 +130,7 @@ func (s *Store) rest(method string, u *url.URL, in M) Reply {
 			}
 			if truth(in["default_branch"]) {
 				r.branch = str(in["default_branch"])
-				clear(r.refResponses)
+				r.clearRefResponses()
 			}
 			return ok(s.repository(r))
 		case "DELETE":
