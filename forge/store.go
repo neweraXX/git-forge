@@ -107,8 +107,20 @@ func global(kind string, id int) string {
 	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%d", kind, id)))
 }
 func hashObject(kind string, data []byte) string {
+	var header [96]byte
+	bytes := append(header[:0], kind...)
+	bytes = append(bytes, ' ')
+	bytes = strconv.AppendInt(bytes, int64(len(data)), 10)
+	bytes = append(bytes, 0)
+	if len(data) <= 4096 {
+		var combined [4192]byte
+		n := copy(combined[:], bytes)
+		n += copy(combined[n:], data)
+		sum := sha1.Sum(combined[:n])
+		return hex.EncodeToString(sum[:])
+	}
 	h := sha1.New()
-	fmt.Fprintf(h, "%s %d\x00", kind, len(data))
+	h.Write(bytes)
 	h.Write(data)
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -300,6 +312,15 @@ func (r *Repository) writeCommit(files map[string]string, parents []string, mess
 func (r *Repository) ancestor(older, newer string) bool {
 	if older == newer {
 		return true
+	}
+	c := r.commit(newer)
+	if c == nil {
+		return false
+	}
+	for _, p := range c.parents {
+		if p == older {
+			return true
+		}
 	}
 	q := []string{newer}
 	seen := map[string]bool{}

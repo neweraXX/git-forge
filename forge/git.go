@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var objectNames = []string{"", "commit", "tree", "blob", "tag"}
@@ -123,8 +124,15 @@ type pendingDelta struct {
 	data               []byte
 }
 
+type packInflater struct {
+	source bytes.Reader
+	reader io.ReadCloser
+}
+
+var inflaterPool = sync.Pool{New: func() any { return &packInflater{} }}
+
 // bytes.Reader implements io.ByteReader, so zlib consumes exactly one stream and
-// leaves the next packed object untouched. Reuse the inflater within each pack.
+// leaves the next packed object untouched. Reuse inflater state across requests.
 func unpack(r *Repository, pack []byte) {
 	need(len(pack) >= 32 && string(pack[:4]) == "PACK", 400, "Invalid pack header")
 	version, count := binary.BigEndian.Uint32(pack[4:8]), binary.BigEndian.Uint32(pack[8:12])
@@ -138,13 +146,14 @@ func unpack(r *Repository, pack []byte) {
 	pending := []pendingDelta{}
 	save := func(offset int, o *Object) { offsets[offset] = o; staged[hashObject(o.kind, o.data)] = o }
 	read := func() byte { need(pos < end, 400, "Invalid packed object"); b := pack[pos]; pos++; return b }
-	var inflater io.ReadCloser
+	state := inflaterPool.Get().(*packInflater)
 	defer func() {
-		if inflater != nil {
-			inflater.Close()
+		if state.reader != nil {
+			state.reader.Close()
 		}
+		state.source.Reset(nil)
+		inflaterPool.Put(state)
 	}()
-	var source bytes.Reader
 	for i := uint32(0); i < count; i++ {
 		start := pos
 		b := read()
@@ -175,21 +184,21 @@ func unpack(r *Repository, pack []byte) {
 			need(kind > 0 && kind < len(objectNames), 400, "Unknown pack object type")
 		}
 		need(pos < end && size <= 64*1024*1024, 400, "Invalid packed object")
-		source.Reset(pack[pos:end])
+		state.source.Reset(pack[pos:end])
 		var err error
-		if inflater == nil {
-			inflater, err = zlib.NewReader(&source)
+		if state.reader == nil {
+			state.reader, err = zlib.NewReader(&state.source)
 		} else {
-			err = inflater.(zlib.Resetter).Reset(&source, nil)
+			err = state.reader.(zlib.Resetter).Reset(&state.source, nil)
 		}
 		need(err == nil, 400, "Invalid compressed object")
 		data := make([]byte, size)
-		_, err = io.ReadFull(inflater, data)
+		_, err = io.ReadFull(state.reader, data)
 		need(err == nil || (size == 0 && err == io.EOF), 400, "Packed object size mismatch")
 		var extra [1]byte
-		n, err := inflater.Read(extra[:])
+		n, err := state.reader.Read(extra[:])
 		need(n == 0 && err == io.EOF, 400, "Invalid compressed object")
-		pos = end - source.Len()
+		pos = end - state.source.Len()
 		if kind == 6 || kind == 7 {
 			pending = append(pending, pendingDelta{start, baseOffset, baseOID, data})
 		} else {

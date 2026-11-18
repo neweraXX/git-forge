@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { connect } from 'node:net';
 import { createTransport } from '../transport.ts';
+import { goServer } from './go-serve.ts';
 process.env.MAKEFUN_SHOP_TOKEN = 'framing-test'; process.env.FORGE_LOGIN = 'alice';
-const server = createTransport();
-await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-const port = (server.address() as any).port;
+const go = process.env.FORGE_TEST_GO ? await goServer() : undefined;
+const server = go ? undefined : createTransport();
+if (server) await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+const port = go?.port || (server!.address() as any).port;
 async function exchange(parts: (Buffer | string)[], pauseRead = 0): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const socket = connect(port, '127.0.0.1'); socket.setNoDelay(true);
@@ -66,4 +68,4 @@ try {
   assert.equal(changes[5].status, 401);
   assert.equal(changes[6].body.title, 'updated');
   console.log('Transport tests passed: fragmentation, chunked/trailers, pipelining, invalid framing, 16 MiB backpressure, GET mutation/auth invalidation');
-} finally { server.close(); }
+} finally { server?.close(); await go?.stop(); }

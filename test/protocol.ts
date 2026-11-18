@@ -5,6 +5,7 @@ import { Repository, Store, hash, zero } from '../store.ts';
 import { unpack, receive, upload, pkt, advertise } from '../git.ts';
 import { graphql } from '../graphql.ts';
 import { createApp } from '../app.ts';
+import { goServer } from './go-serve.ts';
 
 // Independently construct small pack entries to exercise delta input, which the suite's
 // optional output-delta check does not require a server to generate.
@@ -57,9 +58,10 @@ assert.deepEqual(result, { data: { x: { name: 'demo', nameWithOwner: 'alice/demo
 assert.match(graphql(store, { query: '{ viewer { unexpected } }' }).errors[0].message, /unexpected/);
 
 process.env.MAKEFUN_SHOP_TOKEN = 'protocol-test-token'; process.env.FORGE_LOGIN = 'alice';
-const server = createApp();
-await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-const origin = `http://127.0.0.1:${(server.address() as any).port}`;
+const go = process.env.FORGE_TEST_GO ? await goServer() : undefined;
+const server = go ? undefined : createApp();
+if (server) await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+const origin = `http://127.0.0.1:${go?.port || (server!.address() as any).port}`;
 async function call(path: string, method = 'GET', body?: any, token = 'protocol-test-token') {
   const reply = await fetch(origin + path, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   return { status: reply.status, body: await reply.json() };
@@ -80,4 +82,4 @@ try {
   assert.equal((await call('/mcp', 'POST', null)).body.error.code, -32600);
   assert.equal((await call('/mcp', 'POST', { jsonrpc: '2.0', id: 'bad', method: 'tools/call', params: { name: 'create_repo', arguments: { name: 12 } } })).body.error.code, -32602);
   console.log('Protocol tests passed: delta packs, checksum/closure rejection, GraphQL parsing, auth, shared-store cache invalidation');
-} finally { server.close(); }
+} finally { server?.close(); await go?.stop(); }

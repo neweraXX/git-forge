@@ -31,6 +31,15 @@ type Server struct {
 	store      *Store
 	credential string
 	mu         sync.Mutex
+	wire       map[*byte]cachedWire
+	wireBytes  int
+	routes     map[string]*Route
+}
+type Route struct {
+	u       *url.URL
+	parts   []string
+	service string
+	number  int
 }
 
 func newServer() *Server {
@@ -38,7 +47,7 @@ func newServer() *Server {
 	if token != "" {
 		token = "Bearer " + token
 	}
-	return &Server{store: newStore(), credential: token}
+	return &Server{store: newStore(), credential: token, wire: map[*byte]cachedWire{}, routes: map[string]*Route{}}
 }
 func (s *Server) handle(req Request) (reply Reply) {
 	defer func() {
@@ -59,16 +68,31 @@ func (s *Server) handle(req Request) (reply Reply) {
 		return jsonReply(401, M{"message": "Bad credentials"})
 	}
 	store := s.store
-	u, err := url.ParseRequestURI(req.path)
-	if err != nil {
-		panic(err)
+	target := s.routes[req.path]
+	if target == nil {
+		u, err := url.ParseRequestURI(req.path)
+		if err != nil {
+			panic(err)
+		}
+		parts := strings.Split(u.Path, "/")
+		target = &Route{u: u, parts: parts, service: u.Query().Get("service"), number: -1}
+		if len(parts) == 8 {
+			if n, e := strconv.Atoi(parts[7]); e == nil {
+				target.number = n
+			}
+		}
+		if len(s.routes) >= 1024 {
+			clear(s.routes)
+		}
+		s.routes[req.path] = target
 	}
+	u := target.u
 	path := u.Path
-	parts := strings.Split(path, "/")
+	parts := target.parts
 	v2 := req.gitProtocol == "version=2"
 	if len(parts) >= 4 && strings.HasSuffix(parts[2], ".git") {
 		owner, name := parts[1], strings.TrimSuffix(parts[2], ".git")
-		service := u.Query().Get("service")
+		service := target.service
 		switch {
 		case len(parts) == 5 && parts[3] == "info" && parts[4] == "refs" && req.method == "GET":
 			need(service == "git-upload-pack" || service == "git-receive-pack", 400, "Unknown git service")
@@ -85,7 +109,7 @@ func (s *Server) handle(req Request) (reply Reply) {
 		}
 	}
 	if len(parts) == 8 && parts[1] == "api" && parts[2] == "v3" && parts[3] == "repos" && parts[6] == "issues" && req.method == "GET" {
-		if n, e := strconv.Atoi(parts[7]); e == nil {
+		if n := target.number; n >= 0 {
 			r := store.repo(parts[4], parts[5])
 			issue := r.issues[n]
 			found(issue != nil)
@@ -117,12 +141,13 @@ func (s *Server) handle(req Request) (reply Reply) {
 		return ok(store.graphql(input))
 	}
 	if path == "/api/v3" || strings.HasPrefix(path, "/api/v3/") {
-		u.Scheme = "http"
-		u.Host = req.host
-		if u.Host == "" {
-			u.Host = "forge"
+		parsed := *u
+		parsed.Scheme = "http"
+		parsed.Host = req.host
+		if parsed.Host == "" {
+			parsed.Host = "forge"
 		}
-		return store.rest(req.method, u, obj(input))
+		return store.rest(req.method, &parsed, obj(input))
 	}
 	return jsonReply(404, M{"message": "Not Found"})
 }
@@ -152,7 +177,7 @@ func main() {
 	if n, e := strconv.Atoi(env("FORGE_PROCS", "1")); e == nil && n > 0 {
 		runtime.GOMAXPROCS(n)
 	}
-	if n, e := strconv.Atoi(env("FORGE_GOGC", "200")); e == nil {
+	if n, e := strconv.Atoi(env("FORGE_GOGC", "100")); e == nil {
 		debug.SetGCPercent(n)
 	}
 	debug.SetMemoryLimit(384 * 1024 * 1024)
@@ -161,8 +186,14 @@ func main() {
 		panic(err)
 	}
 	fmt.Println(listener.Addr().(*net.TCPAddr).Port)
-	s := &http.Server{Handler: newServer(), ReadHeaderTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
-	if err = s.Serve(listener); err != nil {
+	server := newServer()
+	if os.Getenv("FORGE_GO_HTTP") != "http" {
+		err = server.serveTCP(listener)
+	} else {
+		s := &http.Server{Handler: server, ReadHeaderTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
+		err = s.Serve(listener)
+	}
+	if err != nil {
 		panic(err)
 	}
 }

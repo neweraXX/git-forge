@@ -1,0 +1,130 @@
+package main
+
+import (
+	"bytes"
+	"compress/zlib"
+	"crypto/sha1"
+	"encoding/binary"
+	"encoding/hex"
+	"testing"
+)
+
+func testPack(entries ...[]byte) []byte {
+	p := make([]byte, 12)
+	copy(p, "PACK")
+	binary.BigEndian.PutUint32(p[4:], 2)
+	binary.BigEndian.PutUint32(p[8:], uint32(len(entries)))
+	for _, e := range entries {
+		p = append(p, e...)
+	}
+	sum := sha1.Sum(p)
+	return append(p, sum[:]...)
+}
+func testEntry(kind byte, data, ref []byte) []byte {
+	size := len(data)
+	head := []byte{kind<<4 | byte(size&15)}
+	for size >>= 4; size > 0; size >>= 7 {
+		head[len(head)-1] |= 128
+		head = append(head, byte(size&127))
+	}
+	var b bytes.Buffer
+	b.Write(head)
+	b.Write(ref)
+	w := zlib.NewWriter(&b)
+	w.Write(data)
+	w.Close()
+	return b.Bytes()
+}
+func rejected(t *testing.T, f func()) {
+	t.Helper()
+	defer func() {
+		t.Helper()
+		if recover() == nil {
+			t.Fatal("expected rejection")
+		}
+	}()
+	f()
+}
+func TestUnpackDeltas(t *testing.T) {
+	base, target := []byte("hello world\n"), []byte("hello forge\n")
+	delta := append([]byte{12, 12, 0x90, 6, 6}, []byte("forge\n")...)
+	baseOID, targetOID := hashObject("blob", base), hashObject("blob", target)
+	rawOID, _ := hex.DecodeString(baseOID)
+	original, reference := testEntry(3, base, nil), testEntry(7, delta, rawOID)
+	for _, mode := range []string{"reference", "offset", "thin", "forward"} {
+		t.Run(mode, func(t *testing.T) {
+			r := newRepository(1, M{"name": mode})
+			var pack []byte
+			switch mode {
+			case "reference":
+				pack = testPack(original, reference)
+			case "offset":
+				pack = testPack(original, testEntry(6, delta, []byte{byte(len(original))}))
+			case "thin":
+				r.put("blob", base)
+				pack = testPack(reference)
+			case "forward":
+				pack = testPack(reference, original)
+			}
+			unpack(r, pack)
+			if o := r.objects[targetOID]; o == nil || !bytes.Equal(o.data, target) {
+				t.Fatal("delta target missing")
+			}
+		})
+	}
+}
+func TestPackCorruptionAndRecovery(t *testing.T) {
+	r := newRepository(1, M{"name": "validation"})
+	good := testPack(testEntry(3, []byte("data"), nil))
+	corrupt := bytes.Clone(good)
+	corrupt[len(corrupt)-1] ^= 1
+	rejected(t, func() { unpack(r, corrupt) })
+	if len(r.objects) != 0 {
+		t.Fatal("checksum failure installed objects")
+	}
+	for _, end := range []int{0, 12, len(good) - 1} {
+		rejected(t, func() { unpack(r, good[:end]) })
+	}
+	badStream := bytes.Clone(good)
+	badStream[15] ^= 255
+	sum := sha1.Sum(badStream[:len(badStream)-20])
+	copy(badStream[len(badStream)-20:], sum[:])
+	rejected(t, func() { unpack(r, badStream) })
+	if len(r.objects) != 0 {
+		t.Fatal("inflation failure installed objects")
+	}
+	unpack(r, good)
+	if len(r.objects) != 1 {
+		t.Fatal("inflater failed to recover")
+	}
+	var n [20]byte
+	rejected(t, func() { unpack(r, testPack(testEntry(7, []byte{0, 0}, n[:]))) })
+}
+func TestFetchBoundariesAndCaches(t *testing.T) {
+	r := newRepository(1, M{"name": "history"})
+	blob := r.put("blob", []byte("hello\n"))
+	root := r.writeCommit(map[string]string{"a": blob}, nil, "root")
+	tip := r.writeCommit(map[string]string{"a": blob}, []string{root}, "tip")
+	r.setRef("refs/heads/main", tip)
+	before := bytes.Clone(advertise(r, "git-upload-pack", false))
+	ids, shallow := closure(r, []string{tip}, nil, 1)
+	if len(ids) != 3 || len(shallow) != 1 || shallow[0] != tip {
+		t.Fatal("depth-one closure")
+	}
+	held, _ := closure(r, []string{tip}, map[string]bool{tip: true}, 100)
+	if len(held) != 3 {
+		t.Fatal("shallow boundary followed a parent")
+	}
+	for _, v2 := range []bool{false, true} {
+		request := append(packet("want "+tip+"\n"), packet("deepen 1\n")...)
+		request = append(request, flush...)
+		first := upload(r, request, v2)
+		if !bytes.Equal(first, upload(r, request, v2)) || !bytes.Contains(first, []byte("shallow "+tip)) {
+			t.Fatal("fetch cache or shallow response")
+		}
+	}
+	r.setRef("refs/heads/main", root)
+	if bytes.Equal(before, advertise(r, "git-upload-pack", false)) {
+		t.Fatal("stale advertisement")
+	}
+}
