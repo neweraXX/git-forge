@@ -3,9 +3,37 @@ import { copyFile, chmod, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Agent, request as httpRequest } from 'node:http';
 
 const endpoint = process.env.MAKEFUN_ENV_URL?.replace(/\/$/, '');
 if (!endpoint) throw new Error('MAKEFUN_ENV_URL is required');
+const lifecycleAgent = new Agent({ keepAlive: true, maxSockets: 1 });
+async function requestJson(address: string, body?: unknown, timeout = 10000, pooled = true): Promise<any> {
+  const target = new URL(address);
+  const request = target.protocol === 'https:' ? (await import('node:https')).request : httpRequest;
+  const data = body === undefined ? undefined : JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = request(target, {
+      method: data === undefined ? 'GET' : 'POST',
+      headers: data === undefined ? {} : { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) },
+      agent: target.protocol === 'http:' ? (pooled ? lifecycleAgent : false) : undefined,
+    });
+    const timer = setTimeout(() => req.destroy(new Error('Lifecycle request timed out')), timeout);
+    req.once('error', error => { clearTimeout(timer); reject(error); });
+    req.once('response', response => {
+      let text = ''; response.setEncoding('utf8');
+      response.on('data', chunk => { text += chunk; });
+      response.once('error', error => { clearTimeout(timer); reject(error); });
+      response.once('end', () => {
+        clearTimeout(timer);
+        const status = response.statusCode || 0;
+        if ((status < 200 || status >= 300) && status !== 409) { reject(new Error(`Lifecycle HTTP ${status}`)); return; }
+        try { resolve(status === 409 ? {} : JSON.parse(text)); } catch (error) { reject(error); }
+      });
+    });
+    req.end(data);
+  });
+}
 let child: ChildProcess | undefined, directory: string | undefined;
 let server: ReturnType<typeof import('./app.ts').createApp> | undefined;
 async function startBinary(): Promise<number> {
@@ -35,8 +63,8 @@ async function startBinary(): Promise<number> {
     child!.once('error', error => finish(error));
     child!.once('exit', () => finish(new Error('Forge exited before startup')));
   });
-  const health = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(1000) });
-  if (!health.ok || !(await health.json()).ok || child.exitCode !== null || child.signalCode !== null) throw new Error('Forge health check failed');
+  const health = await requestJson(`http://127.0.0.1:${port}/healthz`, undefined, 1000, false);
+  if (!health.ok || child.exitCode !== null || child.signalCode !== null) throw new Error('Forge health check failed');
   return port;
 }
 async function stopBinary(): Promise<void> {
@@ -48,7 +76,7 @@ async function stopBinary(): Promise<void> {
 }
 let port: number;
 const useGo = process.env.FORGE_SERVER !== 'node';
-function terminate(): void { child?.kill('SIGKILL'); server?.close(); process.exit(0); }
+function terminate(): void { child?.kill('SIGKILL'); server?.close(); lifecycleAgent.destroy(); process.exit(0); }
 process.once('SIGTERM', terminate); process.once('SIGINT', terminate);
 process.once('exit', () => child?.kill('SIGKILL'));
 try {
@@ -64,14 +92,7 @@ try {
   port = (server.address() as { port: number }).port;
 }
 async function contact(path: string, body?: unknown): Promise<any> {
-  const response = await fetch(endpoint + path, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: body === undefined ? {} : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!response.ok && response.status !== 409) throw new Error(`Lifecycle HTTP ${response.status}`);
-  return response.status === 409 ? {} : response.json();
+  return requestJson(endpoint + path, body);
 }
 let registered = false;
 for (;;) {
@@ -82,5 +103,6 @@ for (;;) {
   await new Promise(resolve => setTimeout(resolve, 250));
 }
 server?.close();
+lifecycleAgent.destroy();
 await stopBinary();
 process.exit(0);
