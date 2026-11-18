@@ -5,16 +5,16 @@ import { spawn } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const variants = [
+const variants = JSON.parse(process.env.FORGE_CPU_VARIANTS || JSON.stringify([
   { name: 'epoll-1-gc100-limit128', env: { FORGE_GO_HTTP: 'epoll', FORGE_PROCS: '1', FORGE_GOGC: '100', FORGE_MEMORY_MB: '128' } },
   { name: 'epoll-1-gc400-unlimited', env: { FORGE_GO_HTTP: 'epoll', FORGE_PROCS: '1', FORGE_GOGC: '400', FORGE_MEMORY_MB: '0' } },
   { name: 'epoll-2-gc600-unlimited', env: { FORGE_GO_HTTP: 'epoll', FORGE_PROCS: '2', FORGE_GOGC: '600', FORGE_MEMORY_MB: '0' } },
   { name: 'tcp-1-gc600-unlimited', env: { FORGE_GO_HTTP: 'tcp', FORGE_PROCS: '1', FORGE_GOGC: '600', FORGE_MEMORY_MB: '0' } },
   { name: 'tcp-2-gc600-unlimited', env: { FORGE_GO_HTTP: 'tcp', FORGE_PROCS: '2', FORGE_GOGC: '600', FORGE_MEMORY_MB: '0' } },
-];
+]));
 const runtime = ['main', 'app', 'router', 'transport', 'reader', 'writer', 'store', 'rest', 'git', 'inflate', 'graphql', 'mcp'];
 const rows: any[] = [];
-for (let repeat = 0; repeat < 3; repeat++) {
+for (let repeat = 0; repeat < Number(process.env.FORGE_CPU_REPEATS || 3); repeat++) {
   for (const variant of repeat % 2 ? [...variants].reverse() : variants) {
     const directory = mkdtempSync('/tmp/cpu-variant-');
     const bot = join(directory, 'source'), save = join(directory, 'result');

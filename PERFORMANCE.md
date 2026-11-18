@@ -1,5 +1,36 @@
 # Performance measurements
 
+## CPU-focused server regression round (2026-11-18)
+
+The supplied production results were Go `6258074`: score 941, perf 141, 456780 us; Node `c4a6481`: score 953, perf 153, 391442 us. This round optimizes entry CPU rather than treating local wall time as evidence of a server win. No production regrade of this round was performed.
+
+Before/after below are medians of three `./dock cpu` and three `./dock cpu 1` runs per version. For the baseline repeats, `6258074`'s exact launcher and native binary were temporarily restored, then restored to the new implementation before final validation. CPU is the supplied sampler's sum over both live and replay, sampled every 20 ms in 10 ms CPU ticks; workload p50s come from the live pass. Each column is independently medianed, so component CPU medians need not add to the total median.
+
+| Measurement | 2 CPUs before | 2 CPUs after | 1 CPU before | 1 CPU after |
+| --- | ---: | ---: | ---: | ---: |
+| Total entry CPU ms | 590 | 430 | 650 | 490 |
+| Node launcher CPU ms | 200 | 140 | 220 | 170 |
+| Go CPU ms | 390 | 290 | 410 | 310 |
+| Push p50 ms | 50.550 | 48.596 | 109.836 | 86.253 |
+| Clone p50 ms | 17.460 | 18.203 | 35.093 | 36.403 |
+| Read p50 ms | 178.357 | 179.183 | 306.544 | 278.973 |
+| Write p50 ms | 23.240 | 22.693 | 25.114 | 31.757 |
+
+Entry CPU fell **27.1% on two CPUs and 24.6% on one CPU**. Total CPU samples were 610/590/570→690/420/430 ms (two CPUs) and 770/580/650→500/430/490 ms (one CPU). Wall-time results remain mixed: the one-CPU clone/write rounds are especially noisy, and one one-CPU run scored perf 199/total 999 while retaining all 120 checks and a matching replay. This is not claimed as a production performance improvement.
+
+Chosen settings: **GOGC=600, GOMAXPROCS=2, no explicit memory limit, raw epoll transport**. Full-grade comparisons inject settings into staged entry source, avoiding the process driver's environment filtering. Before the allocation changes, three-run medians were 370 ms Go CPU for epoll/1 worker/GC100/128 MiB, 310 ms for epoll/2 workers/GC600/unlimited, and 440 ms for the goroutine-per-connection netpoll transport with 2 workers/GC600/unlimited. Netpoll therefore was not retained as the default. Baseline gctrace showed six live collections; final diagnostic runs showed zero, with peak Go RSS **22.74, 23.61, 23.76 MiB**, well below 300 MiB. Reproduce with `test/cpu-variants.ts` and `test/cpu-final-memory.ts` through `./dock node`.
+
+Retained implementation changes:
+
+- Pool zlib compressor state and its scratch buffer as well as the existing inflater state. Packed object bytes remain immutable and cached. Packs and sideband streams now use one final allocation; tests cover compressor reuse, corruption recovery, deltas, and frame boundaries.
+- Eliminate cache-key and MIME-string allocations for advertisements, ls-refs and clone responses. Warm handler-plus-complete-HTTP encoding paths for these and issue GETs assert **zero allocations**. Ref and default-branch changes invalidate advertisements and ls-refs while immutable object packs remain reusable.
+- Parse HTTP headers directly from bytes, serialize issue creation into reusable scratch with exact JSON escaping, cache the created body, and reuse immutable user metadata. Tests compare serialized bytes to stdlib JSON and check scratch ownership, Unicode, malformed UTF-8 and cross-surface invalidation.
+- Replace launcher's fetch initialization with the stdlib HTTP client and a single keep-alive lifecycle socket. Health checking does not retain a socket, every request timer is cleared, and polling remains 250 ms. Fallback application code remains lazy. All seven launcher cases pass; Node used 0 ms measured CPU while Go served 300 requests.
+
+Final `./dock gobuild` and `./dock gotest` passed. `./dock grade 3` passed **120/120 × 3**, score **1000 × 3**, with byte-identical replays: perf_p50_us **42742, 44465, 44637** (mean **43948**). `./dock grade-amd64 3` also passed **120/120 × 3**, score **1000 × 3**, and matched every replay; emulated timings are not used. The retained-log runner verified Go listening with no fallback on all three native and all three forced-amd64-binary trials. The 48-request Node parity comparison and transport/protocol tests also passed. The state hash remains `a0e98d49854b961230227867235c8615858e006db3763f341ac6154af1445590`.
+
+Binaries are 6,430,868 bytes amd64 and 6,094,996 bytes arm64. Owner metadata and README badges were untouched. Runtime milestones are `06bfa4b` (GC and compression), `1d312cf` (launcher) and `676aa1e` (hot paths); the final commit records the rebuilt artifacts, benchmark helpers and these measurements.
+
 ## Go default and verified runtime (2026-11-18 follow-up)
 
 Go is now the default. `FORGE_SERVER=node` opts out for direct local comparisons. Node imports its fallback application only after a startup failure or explicit opt-out; during normal Go serving it runs only the lifecycle loop. No Go source or binary changed in this follow-up.
