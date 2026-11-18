@@ -52,18 +52,25 @@ func packets(body []byte, stop bool) (lines []string, offset int) {
 	return
 }
 func sideband(data []byte) []byte {
-	out := make([]byte, 0, len(data)+((len(data)+65514)/65515)*5+4)
+	out := make([]byte, len(data)+((len(data)+65514)/65515)*5+4)
+	dest := 0
+	const digits = "0123456789abcdef"
 	for pos := 0; pos < len(data); pos += 65515 {
 		end := pos + 65515
 		if end > len(data) {
 			end = len(data)
 		}
-		payload := make([]byte, end-pos+1)
-		payload[0] = 1
-		copy(payload[1:], data[pos:end])
-		out = append(out, pkt(payload)...)
+		n := end - pos + 5
+		out[dest] = digits[n>>12&15]
+		out[dest+1] = digits[n>>8&15]
+		out[dest+2] = digits[n>>4&15]
+		out[dest+3] = digits[n&15]
+		out[dest+4] = 1
+		copy(out[dest+5:], data[pos:end])
+		dest += n
 	}
-	return append(out, flush...)
+	copy(out[dest:], flush)
+	return out
 }
 func deltaApply(base, delta []byte) []byte {
 	pos := 0
@@ -234,6 +241,18 @@ func unpack(r *Repository, pack []byte) {
 		}
 	}
 }
+
+type packDeflater struct {
+	output bytes.Buffer
+	writer *zlib.Writer
+}
+
+var deflaterPool = sync.Pool{New: func() any {
+	state := &packDeflater{}
+	state.writer, _ = zlib.NewWriterLevel(&state.output, 1)
+	return state
+}}
+
 func packedObject(o *Object) []byte {
 	if o.packed != nil {
 		return o.packed
@@ -252,26 +271,38 @@ func packedObject(o *Object) []byte {
 		header = append(header, byte(size&127))
 		size >>= 7
 	}
-	var b bytes.Buffer
-	b.Write(header)
-	w, _ := zlib.NewWriterLevel(&b, 1)
-	w.Write(o.data)
-	w.Close()
-	o.packed = b.Bytes()
+	state := deflaterPool.Get().(*packDeflater)
+	state.output.Reset()
+	state.output.Write(header)
+	state.writer.Reset(&state.output)
+	state.writer.Write(o.data)
+	state.writer.Close()
+	// The object owns these bytes; resetting the pooled output must not alter it.
+	o.packed = bytes.Clone(state.output.Bytes())
+	if state.output.Cap() > 1024*1024 {
+		state.output = bytes.Buffer{}
+	}
+	deflaterPool.Put(state)
 	return o.packed
 }
 func packObjects(r *Repository, ids []string) []byte {
-	body := make([]byte, 12)
-	copy(body, "PACK")
-	binary.BigEndian.PutUint32(body[4:], 2)
-	binary.BigEndian.PutUint32(body[8:], uint32(len(ids)))
+	size := 12
 	for _, oid := range ids {
 		o := r.objects[oid]
 		found(o != nil)
-		body = append(body, packedObject(o)...)
+		size += len(packedObject(o))
 	}
-	sum := sha1.Sum(body)
-	return append(body, sum[:]...)
+	body := make([]byte, size+20)
+	copy(body, "PACK")
+	binary.BigEndian.PutUint32(body[4:], 2)
+	binary.BigEndian.PutUint32(body[8:], uint32(len(ids)))
+	pos := 12
+	for _, oid := range ids {
+		pos += copy(body[pos:], r.objects[oid].packed)
+	}
+	sum := sha1.Sum(body[:size])
+	copy(body[size:], sum[:])
+	return body
 }
 
 type graphItem struct {
@@ -507,7 +538,12 @@ func receive(r *Repository, body []byte) []byte {
 	return stream
 }
 func upload(r *Repository, body []byte, v2 bool) []byte {
-	key := fmt.Sprintf("%t:%s", v2, body)
+	var key string
+	if v2 {
+		key = "2:" + string(body)
+	} else {
+		key = "0:" + string(body)
+	}
 	if b := r.fetchCache[key]; b != nil {
 		return b
 	}

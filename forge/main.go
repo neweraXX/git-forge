@@ -188,13 +188,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(reply.data)
 }
 func main() {
-	if n, e := strconv.Atoi(env("FORGE_PROCS", "1")); e == nil && n > 0 {
+	if n, e := strconv.Atoi(env("FORGE_PROCS", "2")); e == nil && n > 0 {
 		runtime.GOMAXPROCS(n)
 	}
-	if n, e := strconv.Atoi(env("FORGE_GOGC", "100")); e == nil {
+	if n, e := strconv.Atoi(env("FORGE_GOGC", "600")); e == nil {
 		debug.SetGCPercent(n)
 	}
-	if n, e := strconv.Atoi(env("FORGE_MEMORY_MB", "128")); e == nil && n > 0 {
+	// The trial's measured working set is small; an aggressive soft limit makes
+	// collection compete with requests. Keep an explicit override for diagnostics.
+	if n, e := strconv.Atoi(env("FORGE_MEMORY_MB", "0")); e == nil && n > 0 {
 		debug.SetMemoryLimit(int64(n) * 1024 * 1024)
 	}
 	if env("FORGE_GO_HTTP", "epoll") == "epoll" {

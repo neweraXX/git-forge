@@ -128,3 +128,40 @@ func TestFetchBoundariesAndCaches(t *testing.T) {
 		t.Fatal("stale advertisement")
 	}
 }
+
+func TestPackedBytesSurviveCompressorReuse(t *testing.T) {
+	r := newRepository(1, M{"name": "compression"})
+	first := r.put("blob", bytes.Repeat([]byte("first object\n"), 1000))
+	original := bytes.Clone(packedObject(r.objects[first]))
+	for _, size := range []int{0, 1, 100, 10000, 2 * 1024 * 1024} {
+		data := bytes.Repeat([]byte("second\n"), size)
+		oid := r.put("blob", data)
+		pack := packObjects(r, []string{oid})
+		other := newRepository(2, M{"name": "round-trip"})
+		unpack(other, pack)
+		if !bytes.Equal(other.objects[oid].data, data) {
+			t.Fatal("pooled compressor round trip")
+		}
+		if !bytes.Equal(r.objects[first].packed, original) {
+			t.Fatal("compressor reused object-owned bytes")
+		}
+	}
+}
+
+func TestSidebandFrameBoundaries(t *testing.T) {
+	for _, size := range []int{0, 1, 65514, 65515, 65516, 131030, 131031} {
+		data := bytes.Repeat([]byte{42}, size)
+		wire := sideband(data)
+		lines, offset := packets(wire, false)
+		var decoded []byte
+		for _, line := range lines {
+			if len(line) == 0 || line[0] != 1 {
+				t.Fatal("sideband channel")
+			}
+			decoded = append(decoded, []byte(line[1:])...)
+		}
+		if offset != len(wire) || !bytes.Equal(decoded, data) {
+			t.Fatalf("sideband size %d", size)
+		}
+	}
+}
