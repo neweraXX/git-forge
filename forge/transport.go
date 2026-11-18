@@ -282,4 +282,3 @@ func (s *Server) serveTCP(listener net.Listener) error {
 		go s.serveConn(c)
 	}
 }
-

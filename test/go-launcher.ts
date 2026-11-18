@@ -5,7 +5,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const runtime = ['main', 'app', 'router', 'transport', 'reader', 'writer', 'store', 'rest', 'git', 'inflate', 'graphql', 'mcp'];
-for (const mode of ['binary', 'missing', 'unexecutable', 'invalid-port', 'timeout']) {
+for (const mode of ['binary', 'missing', 'unexecutable', 'invalid-port', 'dead-port', 'timeout']) {
   const directory = mkdtempSync('/tmp/forge-launch-test-');
   for (const name of runtime) cpSync(`/bot/${name}.ts`, join(directory, `${name}.ts`));
   mkdirSync(join(directory, 'bin'));
@@ -13,6 +13,7 @@ for (const mode of ['binary', 'missing', 'unexecutable', 'invalid-port', 'timeou
   if (mode === 'binary') cpSync(`/bot/bin/forge-${process.arch === 'arm64' ? 'arm64' : 'x64'}`, target);
   if (mode === 'unexecutable') writeFileSync(target, '#!/no-such-forge-interpreter\n');
   if (mode === 'invalid-port') writeFileSync(target, '#!/bin/sh\necho invalid\nexec sleep 30\n');
+  if (mode === 'dead-port') writeFileSync(target, '#!/bin/sh\necho 1\nexec sleep 30\n');
   if (mode === 'timeout') writeFileSync(target, '#!/bin/sh\nexec sleep 30\n');
   let port = 0, checked = false, checkError: unknown;
   const lifecycle = createServer(async (request, response) => {

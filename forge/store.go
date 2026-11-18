@@ -142,6 +142,7 @@ type Repository struct {
 	name, description, branch                string
 	private                                  bool
 	refs                                     map[string]string
+	refOrder                                 []string
 	objects                                  map[string]*Object
 	issues, pulls                            map[int]M
 	labels                                   map[string]M
@@ -183,7 +184,16 @@ func (r *Repository) resolve(ref string) string {
 func (r *Repository) setRef(ref, oid string) {
 	if oid == zero {
 		delete(r.refs, ref)
+		for i, v := range r.refOrder {
+			if v == ref {
+				r.refOrder = append(r.refOrder[:i], r.refOrder[i+1:]...)
+				break
+			}
+		}
 	} else {
+		if r.refs[ref] == "" {
+			r.refOrder = append(r.refOrder, ref)
+		}
 		r.refs[ref] = oid
 	}
 	clear(r.refResponses)
@@ -254,6 +264,23 @@ func (r *Repository) files(tip string) map[string]string {
 		walk(c.tree, "")
 	}
 	return files
+}
+func (r *Repository) fileOrder(tip string) []string {
+	order := []string{}
+	var walk func(string, string)
+	walk = func(tree, prefix string) {
+		for _, e := range r.tree(tree) {
+			if e.mode == "40000" || e.mode == "040000" {
+				walk(e.oid, prefix+e.name+"/")
+			} else {
+				order = append(order, prefix+e.name)
+			}
+		}
+	}
+	if c := r.commit(tip); c != nil {
+		walk(c.tree, "")
+	}
+	return order
 }
 func (r *Repository) buildTree(files map[string]string) string {
 	var build func(string) string
@@ -394,13 +421,15 @@ func itemList(m map[int]M) []any {
 }
 func (r *Repository) changes(pull M) []any {
 	h, b := obj(pull["head"]), obj(pull["base"])
-	head, base := r.files(str(h["sha"])), r.files(r.mergeBase(str(h["sha"]), str(b["sha"])))
+	baseTip := r.mergeBase(str(h["sha"]), str(b["sha"]))
+	head, base := r.files(str(h["sha"])), r.files(baseTip)
 	all := map[string]bool{}
-	for k := range base {
-		all[k] = true
-	}
-	for k := range head {
-		all[k] = true
+	order := []string{}
+	for _, k := range append(r.fileOrder(baseTip), r.fileOrder(str(h["sha"]))...) {
+		if !all[k] {
+			order = append(order, k)
+			all[k] = true
+		}
 	}
 	result := []any{}
 	lines := func(oid string) int {
@@ -414,7 +443,7 @@ func (r *Repository) changes(pull M) []any {
 		}
 		return n
 	}
-	for _, path := range sortedKeys(all) {
+	for _, path := range order {
 		before, after := base[path], head[path]
 		if before == after {
 			continue

@@ -22,6 +22,36 @@ func emptyReply(status int) Reply {
 	return Reply{status: status, contentType: "application/json; charset=utf-8"}
 }
 func ok(v any) Reply { return jsonReply(200, v) }
+func setQueryParam(raw, key, value string) string {
+	pairs := []string{}
+	replaced := false
+	escape := func(s string) string {
+		return strings.ReplaceAll(strings.ReplaceAll(url.QueryEscape(s), "~", "%7E"), "%2A", "*")
+	}
+	for _, pair := range strings.Split(raw, "&") {
+		if pair == "" {
+			continue
+		}
+		parts := strings.SplitN(pair, "=", 2)
+		k, _ := url.QueryUnescape(parts[0])
+		v := ""
+		if len(parts) > 1 {
+			v, _ = url.QueryUnescape(parts[1])
+		}
+		if k == key {
+			if replaced {
+				continue
+			}
+			replaced = true
+			v = value
+		}
+		pairs = append(pairs, escape(k)+"="+escape(v))
+	}
+	if !replaced {
+		pairs = append(pairs, escape(key)+"="+escape(value))
+	}
+	return strings.Join(pairs, "&")
+}
 func (s *Store) rest(method string, u *url.URL, in M) Reply {
 	path := strings.TrimPrefix(strings.TrimPrefix(u.Path, "/api/v3"), "/")
 	q := u.Query()
@@ -52,9 +82,7 @@ func (s *Store) rest(method string, u *url.URL, in M) Reply {
 		out := ok(list[start:end])
 		if len(list) > page*per {
 			next := *u
-			values := q
-			values.Set("page", strconv.Itoa(page+1))
-			next.RawQuery = values.Encode()
+			next.RawQuery = setQueryParam(u.RawQuery, "page", strconv.Itoa(page+1))
 			out.headers = map[string]string{"link": "<" + next.String() + ">; rel=\"next\""}
 		}
 		return out
@@ -133,7 +161,7 @@ func (s *Store) rest(method string, u *url.URL, in M) Reply {
 	}
 	if tail == "branches" && method == "GET" {
 		list := []any{}
-		for _, ref := range sortedKeys(r.refs) {
+		for _, ref := range r.refOrder {
 			if strings.HasPrefix(ref, "refs/heads/") {
 				list = append(list, M{"name": ref[11:], "commit": M{"sha": r.refs[ref]}, "protected": false})
 			}
@@ -204,7 +232,7 @@ func (s *Store) rest(method string, u *url.URL, in M) Reply {
 			}
 			listed := map[string]any{}
 			order := []string{}
-			for _, path := range sortedKeys(files) {
+			for _, path := range r.fileOrder(tip) {
 				if !strings.HasPrefix(path, prefix) {
 					continue
 				}

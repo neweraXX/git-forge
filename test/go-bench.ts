@@ -5,11 +5,11 @@ import { runBenchmark } from '/kit/program/env/src/bench.ts';
 import { goServer } from './go-serve.ts';
 const variants = [
   { name: 'node', env: {} },
-  { name: 'go-http-1-200', env: { FORGE_GO_HTTP: 'http', FORGE_PROCS: '1', FORGE_GOGC: '200' } },
-  { name: 'go-tcp-1-100', env: { FORGE_PROCS: '1', FORGE_GOGC: '100' } },
-  { name: 'go-tcp-1-200', env: { FORGE_PROCS: '1', FORGE_GOGC: '200' } },
-  { name: 'go-tcp-1-500', env: { FORGE_PROCS: '1', FORGE_GOGC: '500' } },
-  { name: 'go-tcp-2-200', env: { FORGE_PROCS: '2', FORGE_GOGC: '200' } },
+  { name: 'go-tcp-1-100', env: { FORGE_GO_HTTP: 'tcp', FORGE_PROCS: '1', FORGE_GOGC: '100' } },
+  { name: 'go-epoll-1-100-64', env: { FORGE_GO_HTTP: 'epoll', FORGE_PROCS: '1', FORGE_GOGC: '100', FORGE_MEMORY_MB: '64' } },
+  { name: 'go-epoll-1-100-128', env: { FORGE_GO_HTTP: 'epoll', FORGE_PROCS: '1', FORGE_GOGC: '100', FORGE_MEMORY_MB: '128' } },
+  { name: 'go-epoll-1-100-384', env: { FORGE_GO_HTTP: 'epoll', FORGE_PROCS: '1', FORGE_GOGC: '100', FORGE_MEMORY_MB: '384' } },
+  { name: 'go-epoll-2-100-128', env: { FORGE_GO_HTTP: 'epoll', FORGE_PROCS: '2', FORGE_GOGC: '100', FORGE_MEMORY_MB: '128' } },
 ];
 const rows: any[] = [];
 for (let repeat = 0; repeat < 3; repeat++) {

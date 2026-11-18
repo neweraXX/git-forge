@@ -7,7 +7,7 @@ const go = process.env.FORGE_TEST_GO ? await goServer() : undefined;
 const server = go ? undefined : createTransport();
 if (server) await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
 const port = go?.port || (server!.address() as any).port;
-async function exchange(parts: (Buffer | string)[], pauseRead = 0): Promise<Buffer> {
+async function exchange(parts: (Buffer | string)[], pauseRead = 0, endWrite = false): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const socket = connect(port, '127.0.0.1'); socket.setNoDelay(true);
     socket.setTimeout(3000, () => { socket.destroy(); reject(new Error('Transport timeout')); });
@@ -17,6 +17,7 @@ async function exchange(parts: (Buffer | string)[], pauseRead = 0): Promise<Buff
     socket.on('connect', async () => {
       if (pauseRead) { socket.pause(); setTimeout(() => socket.resume(), pauseRead); }
       for (const part of parts) { socket.write(part); await new Promise(done => setTimeout(done, 1)); }
+      if (endWrite) socket.end();
     });
   });
 }
@@ -45,6 +46,9 @@ try {
   assert.deepEqual(pipelined.map(r => r.status), [201, 200]);
   assert.equal(pipelined[0].body.id, pipelined[1].body.id);
   const repeated = `GET /healthz HTTP/1.1\r\nHost: localhost\r\n\r\n`;
+  assert.equal(responses(await exchange([repeated], 0, true))[0].status, 200);
+  const continued = await exchange([`POST /mcp HTTP/1.1\r\n${auth}Expect: 100-continue\r\nContent-Length: 2\r\nConnection: close\r\n\r\n`, '{}']);
+  assert.deepEqual(responses(continued).map(r => r.status), [100, 200]);
   assert.deepEqual(responses(await exchange([repeated.repeat(100) + 'GET /healthz HTTP/1.0\r\n\r\n'])).map(r => r.status), Array(101).fill(200));
   const conflict = responses(await exchange([`POST /mcp HTTP/1.1\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n`]));
   assert.equal(conflict[0].status, 400);

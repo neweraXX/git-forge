@@ -1,5 +1,4 @@
-// The workspace's grade 3 helper passes --trials, which is for scrape/v1 kits.
-// Keep that helper untouched and invoke the agent/v1 three-instance grade inside ./dock.
+// Three-instance grade with the per-workload measurements retained for inspection.
 import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

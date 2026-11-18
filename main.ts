@@ -15,7 +15,7 @@ async function startBinary(): Promise<number> {
   await copyFile(fileURLToPath(new URL(`./bin/forge-${process.arch === 'arm64' ? 'arm64' : 'x64'}`, import.meta.url)), binary);
   await chmod(binary, 0o755);
   child = spawn(binary, [], { env: process.env, stdio: ['ignore', 'pipe', 'inherit'] });
-  return new Promise<number>((resolve, reject) => {
+  const port = await new Promise<number>((resolve, reject) => {
     let output = '', settled = false;
     const finish = (error?: Error, value?: number) => {
       if (settled) return;
@@ -36,6 +36,9 @@ async function startBinary(): Promise<number> {
     child!.once('error', error => finish(error));
     child!.once('exit', () => finish(new Error('Forge exited before startup')));
   });
+  const health = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(1000) });
+  if (!health.ok || !(await health.json()).ok || child.exitCode !== null || child.signalCode !== null) throw new Error('Forge health check failed');
+  return port;
 }
 async function stopBinary(): Promise<void> {
   if (child && child.exitCode === null && child.signalCode === null) {
@@ -45,9 +48,13 @@ async function stopBinary(): Promise<void> {
   if (directory) await rm(directory, { recursive: true, force: true });
 }
 let port: number;
+function terminate(): void { child?.kill('SIGKILL'); server?.close(); process.exit(0); }
+process.once('SIGTERM', terminate); process.once('SIGINT', terminate);
+process.once('exit', () => child?.kill('SIGKILL'));
 try {
   if (process.env.FORGE_SERVER === 'node') throw new Error('Node server requested');
   port = await startBinary();
+  process.stderr.write(`Forge Go server listening on ${port}\n`);
 } catch (error) {
   await stopBinary();
   if (process.env.FORGE_SERVER !== 'node') process.stderr.write(`Forge binary fallback: ${String(error)}\n`);
@@ -55,9 +62,6 @@ try {
   await new Promise<void>(resolve => server!.listen(0, '0.0.0.0', resolve));
   port = (server.address() as { port: number }).port;
 }
-function terminate(): void { child?.kill('SIGKILL'); server?.close(); process.exit(0); }
-process.once('SIGTERM', terminate); process.once('SIGINT', terminate);
-process.once('exit', () => child?.kill('SIGKILL'));
 async function contact(path: string, body?: unknown): Promise<any> {
   const response = await fetch(endpoint + path, {
     method: body === undefined ? 'GET' : 'POST',

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "A deterministic GitHub-compatible Git, REST, GraphQL and MCP forge using only Node built-ins",
+  "description": "A deterministic GitHub-compatible forge using Go stdlib with a Node lifecycle and fallback",
   "license": "MIT",
   "engines": {
     "node": ">=22.18"

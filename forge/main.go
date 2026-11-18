@@ -74,10 +74,24 @@ func (s *Server) handle(req Request) (reply Reply) {
 		if err != nil {
 			panic(err)
 		}
-		parts := strings.Split(u.Path, "/")
+		parts := strings.Split(u.EscapedPath(), "/")
+		for i, p := range parts {
+			decoded, err := url.PathUnescape(p)
+			if err != nil {
+				panic(err)
+			}
+			parts[i] = decoded
+		}
 		target = &Route{u: u, parts: parts, service: u.Query().Get("service"), number: -1}
 		if len(parts) == 8 {
-			if n, e := strconv.Atoi(parts[7]); e == nil {
+			digits := parts[7] != ""
+			for _, b := range parts[7] {
+				if b < '0' || b > '9' {
+					digits = false
+					break
+				}
+			}
+			if n, e := strconv.Atoi(parts[7]); e == nil && digits {
 				target.number = n
 			}
 		}
@@ -180,7 +194,20 @@ func main() {
 	if n, e := strconv.Atoi(env("FORGE_GOGC", "100")); e == nil {
 		debug.SetGCPercent(n)
 	}
-	debug.SetMemoryLimit(384 * 1024 * 1024)
+	if n, e := strconv.Atoi(env("FORGE_MEMORY_MB", "128")); e == nil && n > 0 {
+		debug.SetMemoryLimit(int64(n) * 1024 * 1024)
+	}
+	if env("FORGE_GO_HTTP", "epoll") == "epoll" {
+		fd, port, err := loopListener()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(port)
+		if err = newServer().serveLoop(fd); err != nil {
+			panic(err)
+		}
+		return
+	}
 	listener, err := net.Listen("tcp4", "0.0.0.0:0")
 	if err != nil {
 		panic(err)
