@@ -108,7 +108,10 @@ func global(kind string, id int) string {
 	data := append(buffer[:0], kind...)
 	data = append(data, ':')
 	data = strconv.AppendInt(data, int64(id), 10)
-	return base64.StdEncoding.EncodeToString(data)
+	var encoded [128]byte
+	n := base64.StdEncoding.EncodedLen(len(data))
+	base64.StdEncoding.Encode(encoded[:n], data)
+	return string(encoded[:n])
 }
 func hashObject(kind string, data []byte) string {
 	var header [96]byte
@@ -156,7 +159,8 @@ type Repository struct {
 	refs                      map[string]string
 	refOrder                  []string
 	objects                   map[string]*Object
-	issues, pulls             map[int]M
+	issues                    map[int]*IssueRecord
+	pulls                     map[int]M
 	labels                    map[string]M
 	labelOrder                []string
 	nextNumber                int
@@ -170,7 +174,7 @@ type Repository struct {
 }
 
 func newRepository(id int, in M) *Repository {
-	return &Repository{id: id, name: str(in["name"]), description: fallback(in["description"], ""), branch: fallback(in["default_branch"], "main"), private: truth(in["private"]), refs: map[string]string{}, objects: map[string]*Object{}, issues: map[int]M{}, pulls: map[int]M{}, labels: map[string]M{}, nextNumber: 1, refResponses: map[string][]byte{}, receiveReports: map[receiveReportKey][]byte{}, issueBytes: map[int][]byte{}}
+	return &Repository{id: id, name: str(in["name"]), description: fallback(in["description"], ""), branch: fallback(in["default_branch"], "main"), private: truth(in["private"]), refs: map[string]string{}, objects: map[string]*Object{}, issues: map[int]*IssueRecord{}, pulls: map[int]M{}, labels: map[string]M{}, nextNumber: 1, refResponses: map[string][]byte{}, receiveReports: map[receiveReportKey][]byte{}, issueBytes: map[int][]byte{}}
 }
 func (r *Repository) put(kind string, data []byte) string {
 	oid := hashObject(kind, data)
@@ -493,8 +497,54 @@ type NodeRecord struct {
 	kind     string
 	repo     *Repository
 	item     M
+	issue    *IssueRecord
 	comments []any
 }
+
+func (n *NodeRecord) itemValue() M {
+	if n.issue != nil {
+		n.item = n.issue.materialize()
+	}
+	return n.item
+}
+
+// Issue creation stores compact typed fields. Generic APIs materialize their
+// shared mutable map only when they need it; the cached JSON read path does not.
+type IssueRecord struct {
+	id, number          int
+	nodeID, title, body string
+	labels              []any
+	user                M
+	value               M
+}
+
+func (i *IssueRecord) materialize() M {
+	if i == nil {
+		return nil
+	}
+	if i.value == nil {
+		labels := i.labels
+		if labels == nil {
+			labels = []any{}
+		}
+		i.value = M{"id": i.id, "node_id": i.nodeID, "number": i.number, "title": i.title, "body": i.body, "state": "open", "labels": labels, "user": i.user, "created_at": stamp, "updated_at": stamp, "comments": 0}
+	}
+	return i.value
+}
+func (r *Repository) issue(number int) M { return r.issues[number].materialize() }
+func (r *Repository) issueList() []any {
+	keys := make([]int, 0, len(r.issues))
+	for n := range r.issues {
+		keys = append(keys, n)
+	}
+	sort.Ints(keys)
+	items := make([]any, 0, len(keys))
+	for _, n := range keys {
+		items = append(items, r.issue(n))
+	}
+	return items
+}
+
 type Store struct {
 	login     string
 	repos     map[string]*Repository
@@ -553,12 +603,16 @@ func (s *Store) createIssue(r *Repository, in M) M {
 		need(l != nil, 422, "Unknown label")
 		labels = append(labels, l)
 	}
+	return s.createIssueRecord(r, title, fallback(in["body"], ""), labels).materialize()
+}
+func (s *Store) createIssueRecord(r *Repository, title, body string, labels []any) *IssueRecord {
+	need(title != "", 422, "Title required")
 	id, number := s.nextID, r.nextNumber
 	s.nextID++
 	r.nextNumber++
-	issue := M{"id": id, "node_id": global("Issue", id), "number": number, "title": title, "body": fallback(in["body"], ""), "state": "open", "labels": labels, "user": s.user(), "created_at": stamp, "updated_at": stamp, "comments": 0}
+	issue := &IssueRecord{id: id, number: number, nodeID: global("Issue", id), title: title, body: body, labels: labels, user: s.user()}
 	r.issues[number] = issue
-	s.nodes[str(issue["node_id"])] = &NodeRecord{kind: "Issue", repo: r, item: issue, comments: []any{}}
+	s.nodes[issue.nodeID] = &NodeRecord{kind: "Issue", repo: r, issue: issue, comments: []any{}}
 	return issue
 }
 func (s *Store) createPull(r *Repository, in M) M {

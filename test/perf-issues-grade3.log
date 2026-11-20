@@ -1,0 +1,54 @@
+kit github-core-clone-01 dev: verified 63 files
+practice trials 0 to 2, drawn from drand round 33447412
+bot /bot @ worktree@0061369a3524: 84 entries
+upstream no model (no key nor --gateway given, and this competition does not require model calls); trials kept in /tmp/.makefun/trials/github-core-clone-01/01a1f69a-deb5-7695-8e0b-88b17b83f4e9
+trial 0: live pass on practice/trial-0/
+trial 0: live_done, 0 gateway requests, 0 model calls; replaying its cassette
+trial 0: finished
+trial 1: live pass on practice/trial-1/
+trial 1: live_done, 0 gateway requests, 0 model calls; replaying its cassette
+trial 1: finished
+trial 2: live pass on practice/trial-2/
+trial 2: live_done, 0 gateway requests, 0 model calls; replaying its cassette
+trial 2: finished
+L1 regrade of the kept run: each trial's state export re-scored by the sealed scorer, the trials re-aggregated (cli/regrade.ts regradeAgentRun)
+L1 regrade: reproduced byte for byte
+github-core-clone-01 dev, driver process
+bot       /bot @ worktree@0061369a3524
+status    finished
+upstream  no model (no key nor --gateway given, and this competition does not require model calls): every model call of a live pass, metered against $0.02 a trial
+trial 0   practice/trial-0/, instance 2dbde1d1494af3cbb4bfd5e6cd44b3dbab56c5cc7d158ebb9313d9d93b7737fc: finished
+  live    live_done: the entry exited with code 0 after 1.6 s
+  spend   $0.000000 over 0 requests: 0 answered, 0 refused by the trial's policy, 0 upstream errors (pricing 45c98b74084333decd95ac81760727274d419136ce7bd158336eaf0667c03491)
+  calls   0 model calls: what the LLM agent floor counts, a completion the model answered using tokens (a models listing is none)
+  replay  matched: state.json a0e98d49854b961230227867235c8615858e006db3763f341ac6154af1445590 again, byte for byte, every one of the cassette's 0 entries consumed; no model was called
+  scores  {"agent":200,"feature":600,"perf":200,"perf_p50_us":44163,"score":1000,"working":1} (the scorer's scores.json)
+  kept    /tmp/.makefun/trials/github-core-clone-01/01a1f69a-deb5-7695-8e0b-88b17b83f4e9/trial-0 (its replay check alone: --replay /tmp/.makefun/trials/github-core-clone-01/01a1f69a-deb5-7695-8e0b-88b17b83f4e9/trial-0/cassette.json)
+trial 1   practice/trial-1/, instance 31709a3ffeef44c0ebe45109826d1c30e603495732744c2badf6e94dd89fabfa: finished
+  live    live_done: the entry exited with code 0 after 1.6 s
+  spend   $0.000000 over 0 requests: 0 answered, 0 refused by the trial's policy, 0 upstream errors (pricing 45c98b74084333decd95ac81760727274d419136ce7bd158336eaf0667c03491)
+  calls   0 model calls: what the LLM agent floor counts, a completion the model answered using tokens (a models listing is none)
+  replay  matched: state.json a0e98d49854b961230227867235c8615858e006db3763f341ac6154af1445590 again, byte for byte, every one of the cassette's 0 entries consumed; no model was called
+  scores  {"agent":200,"feature":600,"perf":200,"perf_p50_us":42602,"score":1000,"working":1} (the scorer's scores.json)
+  kept    /tmp/.makefun/trials/github-core-clone-01/01a1f69a-deb5-7695-8e0b-88b17b83f4e9/trial-1 (its replay check alone: --replay /tmp/.makefun/trials/github-core-clone-01/01a1f69a-deb5-7695-8e0b-88b17b83f4e9/trial-1/cassette.json)
+trial 2   practice/trial-2/, instance 53cdb951ca278437c50c7e7b8497f7e64c67e8086483898cd6e290f22227c0ac: finished
+  live    live_done: the entry exited with code 0 after 2.1 s
+  spend   $0.000000 over 0 requests: 0 answered, 0 refused by the trial's policy, 0 upstream errors (pricing 45c98b74084333decd95ac81760727274d419136ce7bd158336eaf0667c03491)
+  calls   0 model calls: what the LLM agent floor counts, a completion the model answered using tokens (a models listing is none)
+  replay  matched: state.json a0e98d49854b961230227867235c8615858e006db3763f341ac6154af1445590 again, byte for byte, every one of the cassette's 0 entries consumed; no model was called
+  scores  {"agent":200,"feature":600,"perf":200,"perf_p50_us":62918,"score":1000,"working":1} (the scorer's scores.json)
+  kept    /tmp/.makefun/trials/github-core-clone-01/01a1f69a-deb5-7695-8e0b-88b17b83f4e9/trial-2 (its replay check alone: --replay /tmp/.makefun/trials/github-core-clone-01/01a1f69a-deb5-7695-8e0b-88b17b83f4e9/trial-2/cassette.json)
+kept      /tmp/.makefun/trials/github-core-clone-01/01a1f69a-deb5-7695-8e0b-88b17b83f4e9 (trials.json, result.json, summary.json and each trial-<t>/)
+scores    {"agent":200,"feature":600,"perf":200,"perf_p50_us":49894.333333,"score":1000,"working":1} (each column's mean over 3 trials; 90% interval of the primary column 1000 .. 1000)
+trials    3 finished, 0 timeout, 0 nondeterministic; 3 of 3 stores working
+spend     $0.000000 over 0 model requests (pricing 45c98b74084333decd95ac81760727274d419136ce7bd158336eaf0667c03491)
+cost      unpriced over 0 usage lines (provenance none)
+authored  0.000000000 of 5407 counted lines
+eligible  ranked yes, prize no, efficiency no (no_transcripts, coverage_below_gate, cost_unpriced)
+action_log_sha256 5257f2a3bf3869d8fdf2845029f613ba6c8a539eda9cfb2d4c158005cb7fe03f
+result_sha256     c241cec841c5f96112bac68ee29a42c156f47269e31e67f4d0ee51429d278a83
+L1 regrade        reproduced byte for byte from the kept run: every trial's state export re-scored by the sealed scorer, the trials re-aggregated
+note: process driver: the agent, the env and the forwarder ran on this machine unisolated, on loopback ports and no trial network, and the score records no image digest; the server runs each trial in its docker sandbox, the agent and the env on an internal network with the forwarder its only way out
+note: a model answers differently each time, so this result_sha256 is these trials', never the server's: each trial's replay check is what says whether it would count in the final (a nondeterministic trial leaves the run unranked)
+note: --instances 3: the server grades a dev submission on practice/trial-0/ alone, so this run's dataset_sha256 and seed are not a dev run's
+note: no model was behind the gateway: neither ANTHROPIC_API_KEY, OPENAI_API_KEY nor --gateway was given, and this competition does not require model calls (harness.model_calls: optional), so a model call the entry made met an upstream error, where the server's live pass would have reached the model; to grade an entry that calls one, set one of those keys or give --gateway

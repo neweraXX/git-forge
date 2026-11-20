@@ -345,8 +345,8 @@ func (s *Store) resolveField(parent *GNode, field string, args M) any {
 			return nil
 		case "node":
 			if f := s.nodes[str(args["id"])]; f != nil {
-				if f.item != nil {
-					return node(f.kind, f.item, f.repo)
+				if item := f.itemValue(); item != nil {
+					return node(f.kind, item, f.repo)
 				}
 				return node(f.kind, f.repo, f.repo)
 			}
@@ -361,7 +361,12 @@ func (s *Store) resolveField(parent *GNode, field string, args M) any {
 		}
 	case "Mutation":
 		in := obj(args["input"])
-		record := func(id any) *NodeRecord { n := s.nodes[str(id)]; need(n != nil, 422, "Unknown global ID"); return n }
+		record := func(id any) *NodeRecord {
+			n := s.nodes[str(id)]
+			need(n != nil, 422, "Unknown global ID")
+			n.itemValue()
+			return n
+		}
 		switch field {
 		case "createIssue", "createPullRequest":
 			repository := record(in["repositoryId"]).repo
@@ -427,17 +432,16 @@ func (s *Store) resolveField(parent *GNode, field string, args M) any {
 			}
 			return nil
 		case "issue":
-			return node("Issue", repository.issues[num(args["number"])], repository)
+			return node("Issue", repository.issue(num(args["number"])), repository)
 		case "pullRequest":
 			return node("PullRequest", repository.pulls[num(args["number"])], repository)
 		case "issues", "pullRequests":
-			source := repository.issues
+			list := repository.issueList()
 			kind := "Issue"
 			if field == "pullRequests" {
-				source = repository.pulls
+				list = itemList(repository.pulls)
 				kind = "PullRequest"
 			}
-			list := itemList(source)
 			if truth(args["states"]) {
 				filtered := []any{}
 				for _, v := range list {

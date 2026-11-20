@@ -13,6 +13,7 @@ type Reply struct {
 	data        []byte
 	contentType string
 	headers     map[string]string
+	wire        []byte
 }
 
 func jsonReply(status int, v any) Reply {
@@ -320,7 +321,7 @@ func (s *Store) rest(method string, u *url.URL, in M) Reply {
 		if method == "GET" {
 			state := fallback(q.Get("state"), "open")
 			list := []any{}
-			for _, v := range itemList(r.issues) {
+			for _, v := range r.issueList() {
 				i := obj(v)
 				if state == "all" || i["state"] == state {
 					list = append(list, i)
@@ -334,7 +335,7 @@ func (s *Store) rest(method string, u *url.URL, in M) Reply {
 	}
 	seg := strings.Split(tail, "/")
 	if len(seg) >= 2 && seg[0] == "issues" {
-		issue := r.issues[num(seg[1])]
+		issue := r.issue(num(seg[1]))
 		found(issue != nil)
 		if len(seg) == 3 && seg[2] == "comments" {
 			if method == "POST" {

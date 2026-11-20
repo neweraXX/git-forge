@@ -118,7 +118,7 @@ func (s *Server) handle(req Request) (reply Reply) {
 			if service == "git-receive-pack" {
 				kind = "application/x-git-receive-pack-advertisement"
 			}
-			return Reply{200, advertise(store.repo(owner, name), service, v2), kind, nil}
+			return Reply{status: 200, data: advertise(store.repo(owner, name), service, v2), contentType: kind}
 		case len(parts) == 4 && req.method == "POST" && (parts[3] == "git-upload-pack" || parts[3] == "git-receive-pack"):
 			r := store.repo(owner, name)
 			var data []byte
@@ -131,7 +131,7 @@ func (s *Server) handle(req Request) (reply Reply) {
 			if parts[3] == "git-receive-pack" {
 				kind = "application/x-git-receive-pack-result"
 			}
-			return Reply{200, data, kind, nil}
+			return Reply{status: 200, data: data, contentType: kind}
 		}
 	}
 	if len(parts) == 8 && parts[1] == "api" && parts[2] == "v3" && parts[3] == "repos" && parts[6] == "issues" && req.method == "GET" {
@@ -141,10 +141,17 @@ func (s *Server) handle(req Request) (reply Reply) {
 			found(issue != nil)
 			data := r.issueBytes[n]
 			if data == nil {
-				data = jsonBytes(issue)
+				data = jsonBytes(issue.materialize())
 				r.issueBytes[n] = data
 			}
-			return Reply{200, data, "application/json; charset=utf-8", nil}
+			return Reply{status: 200, data: data, contentType: "application/json; charset=utf-8"}
+		}
+	}
+	if len(parts) == 7 && parts[1] == "api" && parts[2] == "v3" && parts[3] == "repos" && parts[6] == "issues" && req.method == "POST" {
+		if title, body, valid := simpleIssueInput(req.body); valid {
+			r := store.repo(parts[4], parts[5])
+			issue := store.createIssueRecord(r, title, body, nil)
+			return s.createdIssueRecord(r, issue)
 		}
 	}
 	var input any = M{}

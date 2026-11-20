@@ -21,6 +21,9 @@ type cachedWire struct {
 // Immutable reply bodies identify reusable responses. The bounded cache retains
 // their backing storage; replacing an issue or ref response cannot reuse stale bytes.
 func (s *Server) encode(reply Reply, close bool) []byte {
+	if !close && reply.wire != nil {
+		return reply.wire
+	}
 	var key *byte
 	if len(reply.data) > 0 {
 		key = &reply.data[0]
@@ -30,11 +33,24 @@ func (s *Server) encode(reply Reply, close bool) []byte {
 			return c.wire
 		}
 	}
+	out := make([]byte, 0, len(reply.data)+192)
+	out = appendResponseHead(out, reply, close)
+	out = append(out, reply.data...)
+	if !close && reply.headers == nil && key != nil && len(out) < 8*1024*1024 {
+		if len(s.wire) >= 2048 || s.wireBytes+len(out) > 16*1024*1024 {
+			clear(s.wire)
+			s.wireBytes = 0
+		}
+		s.wire[key] = cachedWire{reply.status, reply.contentType, out}
+		s.wireBytes += len(out)
+	}
+	return out
+}
+func appendResponseHead(out []byte, reply Reply, close bool) []byte {
 	connection := "keep-alive"
 	if close {
 		connection = "close"
 	}
-	out := make([]byte, 0, len(reply.data)+192)
 	out = append(out, "HTTP/1.1 "...)
 	out = strconv.AppendInt(out, int64(reply.status), 10)
 	out = append(out, ' ')
@@ -53,15 +69,6 @@ func (s *Server) encode(reply Reply, close bool) []byte {
 		out = append(out, "\r\n"...)
 	}
 	out = append(out, "\r\n"...)
-	out = append(out, reply.data...)
-	if !close && reply.headers == nil && key != nil && len(out) < 8*1024*1024 {
-		if len(s.wire) >= 2048 || s.wireBytes+len(out) > 16*1024*1024 {
-			clear(s.wire)
-			s.wireBytes = 0
-		}
-		s.wire[key] = cachedWire{reply.status, reply.contentType, out}
-		s.wireBytes += len(out)
-	}
 	return out
 }
 

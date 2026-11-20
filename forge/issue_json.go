@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"strconv"
 	"unicode/utf8"
 )
@@ -62,38 +61,51 @@ func appendJSONString(dst []byte, s string) []byte {
 }
 
 func (s *Server) createdIssue(r *Repository, issue M) Reply {
+	return s.serializeCreatedIssue(r, num(issue["id"]), num(issue["number"]), str(issue["node_id"]), str(issue["title"]), str(issue["body"]), arr(issue["labels"]))
+}
+func (s *Server) createdIssueRecord(r *Repository, issue *IssueRecord) Reply {
+	return s.serializeCreatedIssue(r, issue.id, issue.number, issue.nodeID, issue.title, issue.body, issue.labels)
+}
+func (s *Server) serializeCreatedIssue(r *Repository, id, number int, nodeID, title, body string, labels []any) Reply {
 	// The store retains ordinary issue records for all APIs. Serialize the creation
 	// response without reflection or sorting and give the cached body its own bytes.
 	out := append(s.scratch[:0], `{"body":`...)
-	out = appendJSONString(out, str(issue["body"]))
+	out = appendJSONString(out, body)
 	out = append(out, `,"comments":0,"created_at":`...)
 	out = appendJSONString(out, stamp)
 	out = append(out, `,"id":`...)
-	out = strconv.AppendInt(out, int64(num(issue["id"])), 10)
+	out = strconv.AppendInt(out, int64(id), 10)
 	out = append(out, `,"labels":`...)
-	labels := arr(issue["labels"])
 	if len(labels) == 0 {
 		out = append(out, '[', ']')
 	} else {
 		out = append(out, jsonBytes(labels)...)
 	}
 	out = append(out, `,"node_id":`...)
-	out = appendJSONString(out, str(issue["node_id"]))
+	out = appendJSONString(out, nodeID)
 	out = append(out, `,"number":`...)
-	number := num(issue["number"])
 	out = strconv.AppendInt(out, int64(number), 10)
 	out = append(out, `,"state":"open","title":`...)
-	out = appendJSONString(out, str(issue["title"]))
+	out = appendJSONString(out, title)
 	out = append(out, `,"updated_at":`...)
 	out = appendJSONString(out, stamp)
 	out = append(out, `,"user":`...)
 	out = append(out, s.store.userJSON...)
 	out = append(out, '}')
-	body := bytes.Clone(out)
-	r.issueBytes[number] = body
+	// Reserve header space before the owned body. Both slices share one backing
+	// allocation; creation replies are not installed in the generic wire cache.
+	storage := make([]byte, 192+len(out))
+	data := storage[192:]
+	copy(data, out)
+	reply := Reply{status: 201, data: data, contentType: "application/json; charset=utf-8"}
+	var header [192]byte
+	head := appendResponseHead(header[:0], reply, false)
+	copy(storage[192-len(head):], head)
+	reply.wire = storage[192-len(head):]
+	r.issueBytes[number] = data
 	s.scratch = out
 	if cap(s.scratch) > 1024*1024 {
 		s.scratch = nil
 	}
-	return Reply{status: 201, data: body, contentType: "application/json; charset=utf-8"}
+	return reply
 }

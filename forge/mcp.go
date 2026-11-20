@@ -122,7 +122,7 @@ func (s *Store) mcp(call M) any {
 				value = s.createIssue(r, args)
 			case "list_issues":
 				list := []any{}
-				for _, v := range itemList(r.issues) {
+				for _, v := range r.issueList() {
 					if !truth(args["state"]) || args["state"] == "all" || obj(v)["state"] == args["state"] {
 						list = append(list, v)
 					}

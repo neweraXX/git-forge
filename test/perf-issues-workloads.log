@@ -1,0 +1,16 @@
+{"repeat":0,"workload":"push","ops":2000,"cpu_us_op":30,"rusage_us_op":25.6015,"allocs_op":18.038,"bytes_op":3973.904,"gc":0,"p50_ms":29.691}
+{"repeat":0,"workload":"clone","ops":500,"cpu_us_op":20,"rusage_us_op":26.012,"allocs_op":0.05,"bytes_op":9.92,"gc":0,"p50_ms":16.791}
+{"repeat":0,"workload":"read","ops":20000,"cpu_us_op":6,"rusage_us_op":5.57475,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":99.965}
+{"repeat":0,"workload":"write","ops":2000,"cpu_us_op":5,"rusage_us_op":7.4535,"allocs_op":6.032,"bytes_op":1356.64,"gc":0,"p50_ms":12.691}
+{"repeat":1,"workload":"push","ops":2000,"cpu_us_op":25,"rusage_us_op":25.597,"allocs_op":18.039,"bytes_op":3973.96,"gc":0,"p50_ms":26.547}
+{"repeat":1,"workload":"clone","ops":500,"cpu_us_op":40,"rusage_us_op":23.69,"allocs_op":0.046,"bytes_op":40.256,"gc":0,"p50_ms":13.736}
+{"repeat":1,"workload":"read","ops":20000,"cpu_us_op":4,"rusage_us_op":4.4812,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":88.44}
+{"repeat":1,"workload":"write","ops":2000,"cpu_us_op":5,"rusage_us_op":7.3945,"allocs_op":6.032,"bytes_op":1356.64,"gc":0,"p50_ms":12.497}
+{"repeat":2,"workload":"push","ops":2000,"cpu_us_op":20,"rusage_us_op":24.706,"allocs_op":18.034,"bytes_op":3953.536,"gc":0,"p50_ms":25.458}
+{"repeat":2,"workload":"clone","ops":500,"cpu_us_op":40,"rusage_us_op":24.704,"allocs_op":0.022,"bytes_op":0.96,"gc":0,"p50_ms":13.813}
+{"repeat":2,"workload":"read","ops":20000,"cpu_us_op":5,"rusage_us_op":4.39775,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":85.231}
+{"repeat":2,"workload":"write","ops":2000,"cpu_us_op":5,"rusage_us_op":6.8845,"allocs_op":6.032,"bytes_op":1356.64,"gc":0,"p50_ms":12.834}
+{"workload":"push","median":{"cpu_us_op":25,"rusage_us_op":25.597,"allocs_op":18.038,"bytes_op":3973.904,"gc":0,"p50_ms":26.547}}
+{"workload":"clone","median":{"cpu_us_op":40,"rusage_us_op":24.704,"allocs_op":0.046,"bytes_op":9.92,"gc":0,"p50_ms":13.813}}
+{"workload":"read","median":{"cpu_us_op":5,"rusage_us_op":4.4812,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":88.44}}
+{"workload":"write","median":{"cpu_us_op":5,"rusage_us_op":7.3945,"allocs_op":6.032,"bytes_op":1356.64,"gc":0,"p50_ms":12.691}}
