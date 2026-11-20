@@ -103,6 +103,9 @@ func (s *Server) serializeCreatedIssue(r *Repository, id, number int, nodeID, ti
 	copy(storage[192-len(head):], head)
 	reply.wire = storage[192-len(head):]
 	r.issueBytes[number] = data
+	if issue := r.issues[number]; issue != nil {
+		issue.read = Reply{status: 200, data: data, contentType: reply.contentType}
+	}
 	s.scratch = out
 	if cap(s.scratch) > 1024*1024 {
 		s.scratch = nil

@@ -516,6 +516,7 @@ type IssueRecord struct {
 	labels              []any
 	user                M
 	value               M
+	read                Reply
 }
 
 func (i *IssueRecord) materialize() M {
@@ -668,6 +669,9 @@ func (s *Store) merge(r *Repository, p M) M {
 func (s *Store) changedIssue(issue M) {
 	if n := s.nodes[str(issue["node_id"])]; n != nil {
 		delete(n.repo.issueBytes, num(issue["number"]))
+		if n.issue != nil {
+			n.issue.read = Reply{}
+		}
 	}
 }
 func (s *Store) comment(issue M, body string) M {

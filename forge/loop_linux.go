@@ -170,8 +170,10 @@ func (s *Server) processLoop(c *loopConn) {
 	}
 }
 func (s *Server) serveLoop(listener int) error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+	if env("FORGE_LOCK_THREAD", "1") != "0" {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+	}
 	epfd, err := syscall.EpollCreate1(syscall.EPOLL_CLOEXEC)
 	if err != nil {
 		return err

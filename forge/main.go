@@ -41,7 +41,16 @@ type Route struct {
 	parts   []string
 	service string
 	number  int
+	kind    int
 }
+
+const (
+	routeOther = iota
+	routeGitInfo
+	routeGitService
+	routeIssue
+	routeIssues
+)
 
 func newServer() *Server {
 	token := os.Getenv("MAKEFUN_SHOP_TOKEN")
@@ -99,6 +108,20 @@ func (s *Server) handle(req Request) (reply Reply) {
 				target.number = n
 			}
 		}
+		switch {
+		case len(parts) >= 4 && strings.HasSuffix(parts[2], ".git"):
+			if len(parts) == 5 && parts[3] == "info" && parts[4] == "refs" {
+				target.kind = routeGitInfo
+			} else if len(parts) == 4 && (parts[3] == "git-upload-pack" || parts[3] == "git-receive-pack") {
+				target.kind = routeGitService
+			}
+		case (len(parts) == 7 || len(parts) == 8) && parts[1] == "api" && parts[2] == "v3" && parts[3] == "repos" && parts[6] == "issues":
+			if len(parts) == 7 {
+				target.kind = routeIssues
+			} else if target.number >= 0 {
+				target.kind = routeIssue
+			}
+		}
 		if len(s.routes) >= 1024 {
 			clear(s.routes)
 		}
@@ -108,18 +131,18 @@ func (s *Server) handle(req Request) (reply Reply) {
 	path := u.Path
 	parts := target.parts
 	v2 := req.gitProtocol == "version=2"
-	if len(parts) >= 4 && strings.HasSuffix(parts[2], ".git") {
+	if target.kind == routeGitInfo || target.kind == routeGitService {
 		owner, name := parts[1], strings.TrimSuffix(parts[2], ".git")
 		service := target.service
 		switch {
-		case len(parts) == 5 && parts[3] == "info" && parts[4] == "refs" && req.method == "GET":
+		case target.kind == routeGitInfo && req.method == "GET":
 			need(service == "git-upload-pack" || service == "git-receive-pack", 400, "Unknown git service")
 			kind := "application/x-git-upload-pack-advertisement"
 			if service == "git-receive-pack" {
 				kind = "application/x-git-receive-pack-advertisement"
 			}
 			return Reply{status: 200, data: advertise(store.repo(owner, name), service, v2), contentType: kind}
-		case len(parts) == 4 && req.method == "POST" && (parts[3] == "git-upload-pack" || parts[3] == "git-receive-pack"):
+		case target.kind == routeGitService && req.method == "POST":
 			r := store.repo(owner, name)
 			var data []byte
 			if parts[3] == "git-upload-pack" {
@@ -134,20 +157,24 @@ func (s *Server) handle(req Request) (reply Reply) {
 			return Reply{status: 200, data: data, contentType: kind}
 		}
 	}
-	if len(parts) == 8 && parts[1] == "api" && parts[2] == "v3" && parts[3] == "repos" && parts[6] == "issues" && req.method == "GET" {
+	if target.kind == routeIssue && req.method == "GET" {
 		if n := target.number; n >= 0 {
 			r := store.repo(parts[4], parts[5])
 			issue := r.issues[n]
 			found(issue != nil)
-			data := r.issueBytes[n]
-			if data == nil {
-				data = jsonBytes(issue.materialize())
-				r.issueBytes[n] = data
+			if issue.read.wire == nil {
+				data := issue.read.data
+				if data == nil {
+					data = jsonBytes(issue.materialize())
+					r.issueBytes[n] = data
+				}
+				issue.read = Reply{status: 200, data: data, contentType: "application/json; charset=utf-8"}
+				issue.read.wire = s.encode(issue.read, false)
 			}
-			return Reply{status: 200, data: data, contentType: "application/json; charset=utf-8"}
+			return issue.read
 		}
 	}
-	if len(parts) == 7 && parts[1] == "api" && parts[2] == "v3" && parts[3] == "repos" && parts[6] == "issues" && req.method == "POST" {
+	if target.kind == routeIssues && req.method == "POST" {
 		if title, body, valid := simpleIssueInput(req.body); valid {
 			r := store.repo(parts[4], parts[5])
 			issue := store.createIssueRecord(r, title, body, nil)
@@ -163,7 +190,7 @@ func (s *Server) handle(req Request) (reply Reply) {
 			return jsonReply(400, M{"message": "Invalid JSON"})
 		}
 	}
-	if len(parts) == 7 && parts[1] == "api" && parts[2] == "v3" && parts[3] == "repos" && parts[6] == "issues" && req.method == "POST" {
+	if target.kind == routeIssues && req.method == "POST" {
 		r := store.repo(parts[4], parts[5])
 		issue := store.createIssue(r, obj(input))
 		return s.createdIssue(r, issue)

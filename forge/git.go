@@ -2,10 +2,13 @@ package main
 
 import (
 	"bytes"
+	"compress/flate"
 	"compress/zlib"
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
+	"hash"
+	"hash/adler32"
 	"io"
 	"strconv"
 	"strings"
@@ -145,14 +148,40 @@ type pendingDelta struct {
 }
 
 type packInflater struct {
-	source bytes.Reader
-	reader io.ReadCloser
-	extra  [1]byte
+	source  bytes.Reader
+	reader  io.ReadCloser
+	extra   [1]byte
+	hasher  hash.Hash
+	header  [96]byte
+	digest  [20]byte
+	encoded [40]byte
+	objects []unpackedObject
+	pending []pendingDelta
+	offsets map[int]*Object
+	staged  map[string]*Object
+}
+type unpackedObject struct {
+	offset int
+	oid    string
+	object *Object
 }
 
-var inflaterPool = sync.Pool{New: func() any { return &packInflater{} }}
+var inflaterPool = sync.Pool{New: func() any { return &packInflater{hasher: sha1.New()} }}
 
-// bytes.Reader implements io.ByteReader, so zlib consumes exactly one stream and
+func (state *packInflater) objectID(kind string, data []byte) string {
+	header := append(state.header[:0], kind...)
+	header = append(header, ' ')
+	header = strconv.AppendInt(header, int64(len(data)), 10)
+	header = append(header, 0)
+	state.hasher.Reset()
+	state.hasher.Write(header)
+	state.hasher.Write(data)
+	state.hasher.Sum(state.digest[:0])
+	hex.Encode(state.encoded[:], state.digest[:])
+	return string(state.encoded[:])
+}
+
+// bytes.Reader implements io.ByteReader, so flate consumes exactly one stream and
 // leaves the next packed object untouched. Reuse inflater state across requests.
 func unpack(r *Repository, pack []byte) {
 	need(len(pack) >= 32 && string(pack[:4]) == "PACK", 400, "Invalid pack header")
@@ -162,17 +191,33 @@ func unpack(r *Repository, pack []byte) {
 	sum := sha1.Sum(pack[:end])
 	need(bytes.Equal(sum[:], pack[end:]), 400, "Pack checksum mismatch")
 	pos := 12
-	offsets := map[int]*Object{}
-	staged := map[string]*Object{}
-	pending := []pendingDelta{}
-	save := func(offset int, o *Object) { offsets[offset] = o; staged[hashObject(o.kind, o.data)] = o }
-	read := func() byte { need(pos < end, 400, "Invalid packed object"); b := pack[pos]; pos++; return b }
 	state := inflaterPool.Get().(*packInflater)
+	indexed := false
+	save := func(offset int, o *Object) {
+		oid := state.objectID(o.kind, o.data)
+		state.objects = append(state.objects, unpackedObject{offset, oid, o})
+		if indexed {
+			state.offsets[offset], state.staged[oid] = o, o
+		}
+	}
+	read := func() byte { need(pos < end, 400, "Invalid packed object"); b := pack[pos]; pos++; return b }
 	defer func() {
 		if state.reader != nil {
 			state.reader.Close()
 		}
 		state.source.Reset(nil)
+		clear(state.objects)
+		clear(state.pending)
+		state.objects = state.objects[:0]
+		state.pending = state.pending[:0]
+		clear(state.offsets)
+		clear(state.staged)
+		if cap(state.objects) > 4096 {
+			state.objects = nil
+		}
+		if cap(state.pending) > 4096 {
+			state.pending = nil
+		}
 		inflaterPool.Put(state)
 	}()
 	for i := uint32(0); i < count; i++ {
@@ -199,18 +244,29 @@ func unpack(r *Repository, pack []byte) {
 			baseOffset = start - distance
 		} else if kind == 7 {
 			need(pos+20 <= end, 400, "Invalid packed object")
-			baseOID = hex.EncodeToString(pack[pos : pos+20])
+			baseOID = hexOID(pack[pos : pos+20])
 			pos += 20
 		} else {
 			need(kind > 0 && kind < len(objectNames), 400, "Unknown pack object type")
 		}
 		need(pos < end && size <= 64*1024*1024, 400, "Invalid packed object")
+		// Parse the small zlib envelope here and pool the flate reader directly.
+		// zlib.Reset allocates a new digest for each stream; a single checksum of
+		// the completed object also avoids digest/interface work on every Read.
+		need(pos+2 <= end, 400, "Invalid compressed object")
+		cmf, flags := pack[pos], pack[pos+1]
+		need(cmf&15 == 8 && cmf>>4 <= 7 && (uint16(cmf)<<8|uint16(flags))%31 == 0, 400, "Invalid compressed object")
+		pos += 2
+		if flags&32 != 0 {
+			need(pos+4 <= end && binary.BigEndian.Uint32(pack[pos:pos+4]) == 1, 400, "Invalid compressed dictionary")
+			pos += 4
+		}
 		state.source.Reset(pack[pos:end])
 		var err error
 		if state.reader == nil {
-			state.reader, err = zlib.NewReader(&state.source)
+			state.reader = flate.NewReader(&state.source)
 		} else {
-			err = state.reader.(zlib.Resetter).Reset(&state.source, nil)
+			err = state.reader.(flate.Resetter).Reset(&state.source, nil)
 		}
 		need(err == nil, 400, "Invalid compressed object")
 		data := make([]byte, size)
@@ -219,38 +275,64 @@ func unpack(r *Repository, pack []byte) {
 		n, err := state.reader.Read(state.extra[:])
 		need(n == 0 && err == io.EOF, 400, "Invalid compressed object")
 		pos = end - state.source.Len()
+		need(pos+4 <= end && binary.BigEndian.Uint32(pack[pos:pos+4]) == adler32.Checksum(data), 400, "Invalid compressed checksum")
+		pos += 4
 		if kind == 6 || kind == 7 {
-			pending = append(pending, pendingDelta{start, baseOffset, baseOID, data})
+			state.pending = append(state.pending, pendingDelta{start, baseOffset, baseOID, data})
 		} else {
 			save(start, &Object{kind: objectNames[kind], data: data, packed: pack[start:pos]})
 		}
 	}
 	need(pos == end, 400, "Extra pack data")
-	for len(pending) > 0 {
+	// Ordinary packs need no temporary maps. Resolve small delta packs from the
+	// reusable entry slice, and index larger packs once to bound lookup work.
+	if len(state.pending) > 0 && count > 16 {
+		if state.offsets == nil {
+			state.offsets = map[int]*Object{}
+			state.staged = map[string]*Object{}
+		}
+		indexed = true
+		for _, o := range state.objects {
+			state.offsets[o.offset], state.staged[o.oid] = o.object, o.object
+		}
+	}
+	for len(state.pending) > 0 {
 		progress := false
-		for i := len(pending) - 1; i >= 0; i-- {
-			p := pending[i]
+		for i := len(state.pending) - 1; i >= 0; i-- {
+			p := state.pending[i]
 			var base *Object
-			if p.baseOffset >= 0 {
-				base = offsets[p.baseOffset]
-			} else {
-				base = staged[p.baseOID]
-				if base == nil {
-					base = r.objects[p.baseOID]
+			if indexed {
+				if p.baseOffset >= 0 {
+					base = state.offsets[p.baseOffset]
+				} else {
+					base = state.staged[p.baseOID]
 				}
+			} else {
+				for j := len(state.objects) - 1; j >= 0; j-- {
+					o := state.objects[j]
+					if p.baseOffset >= 0 && o.offset == p.baseOffset || p.baseOffset < 0 && o.oid == p.baseOID {
+						base = o.object
+						break
+					}
+				}
+			}
+			if base == nil && p.baseOffset < 0 {
+				base = r.objects[p.baseOID]
 			}
 			if base == nil {
 				continue
 			}
 			save(p.offset, &Object{kind: base.kind, data: deltaApply(base.data, p.data)})
-			pending = append(pending[:i], pending[i+1:]...)
+			copy(state.pending[i:], state.pending[i+1:])
+			state.pending[len(state.pending)-1] = pendingDelta{}
+			state.pending = state.pending[:len(state.pending)-1]
 			progress = true
 		}
 		need(progress, 400, "Missing delta base")
 	}
-	for oid, o := range staged {
-		if r.objects[oid] == nil {
-			r.objects[oid] = o
+	for _, o := range state.objects {
+		if r.objects[o.oid] == nil {
+			r.objects[o.oid] = o.object
 		}
 	}
 }

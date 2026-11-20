@@ -208,3 +208,71 @@ func TestReceiveReportCacheChecksEveryPush(t *testing.T) {
 		t.Fatal("cached verdict did not recover after rejection")
 	}
 }
+
+func TestZlibEnvelopeChecksAndDictionary(t *testing.T) {
+	entry := testEntry(3, bytes.Repeat([]byte("envelope\n"), 100), nil)
+	pos := 1
+	for entry[pos-1]&128 != 0 {
+		pos++
+	}
+	for _, mode := range []string{"header", "checksum", "truncated", "dictionary"} {
+		t.Run(mode, func(t *testing.T) {
+			bad := bytes.Clone(entry)
+			switch mode {
+			case "header":
+				bad[pos] ^= 1
+			case "checksum":
+				bad[len(bad)-1] ^= 1
+			case "truncated":
+				bad = bad[:len(bad)-1]
+			case "dictionary":
+				flags := (bad[pos+1] & 0xe0) | 32
+				flags |= byte((31 - (uint16(bad[pos])<<8|uint16(flags))%31) % 31)
+				bad[pos+1] = flags
+				bad = append(append(bytes.Clone(bad[:pos+2]), 0, 0, 0, 2), bad[pos+2:]...)
+			}
+			r := newRepository(1, M{"name": mode})
+			rejected(t, func() { unpack(r, testPack(bad)) })
+			if len(r.objects) != 0 {
+				t.Fatal("invalid stream installed objects")
+			}
+			unpack(r, testPack(entry))
+			if len(r.objects) != 1 {
+				t.Fatal("inflater failed to recover")
+			}
+		})
+	}
+	// The stdlib zlib reader accepts an explicit empty dictionary (Adler-32 1).
+	flags := (entry[pos+1] & 0xe0) | 32
+	flags |= byte((31 - (uint16(entry[pos])<<8|uint16(flags))%31) % 31)
+	dict := append(bytes.Clone(entry[:pos]), entry[pos], flags, 0, 0, 0, 1)
+	dict = append(dict, entry[pos+2:]...)
+	r := newRepository(2, M{"name": "empty-dictionary"})
+	unpack(r, testPack(dict))
+	if len(r.objects) != 1 {
+		t.Fatal("empty dictionary rejected")
+	}
+}
+
+func TestIndexedDeltaStaging(t *testing.T) {
+	base := []byte("hello world\n")
+	delta := append([]byte{12, 12, 0x90, 6, 6}, []byte("forge\n")...)
+	raw, _ := hex.DecodeString(hashObject("blob", base))
+	for _, forward := range []bool{false, true} {
+		entries := [][]byte{}
+		for i := 0; i < 20; i++ {
+			entries = append(entries, testEntry(3, []byte{byte(i)}, nil))
+		}
+		original, reference := testEntry(3, base, nil), testEntry(7, delta, raw)
+		if forward {
+			entries = append(entries, reference, original)
+		} else {
+			entries = append(entries, original, reference)
+		}
+		r := newRepository(1, M{"name": "indexed"})
+		unpack(r, testPack(entries...))
+		if o := r.objects[hashObject("blob", []byte("hello forge\n"))]; o == nil || string(o.data) != "hello forge\n" {
+			t.Fatal("indexed delta failed")
+		}
+	}
+}
