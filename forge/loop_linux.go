@@ -66,12 +66,12 @@ func (c *loopConn) next() (req Request, used int, close, complete bool) {
 			c.request = c.lastRequest
 			c.frame = framing{}
 		} else {
-			c.request, c.frame = parseHeaders(head)
-			if c.request.method == "GET" && !c.frame.close && !c.frame.chunked && c.frame.length == 0 {
+			c.request, c.frame = parseHeadersView(head)
+			if c.request.method == "GET" && !c.frame.close && !c.frame.chunked && !c.frame.expect && c.frame.length == 0 {
 				c.lastHead = append(c.lastHead[:0], head...)
-				c.lastRequest = c.request
+				c.lastRequest, _ = parseHeadersView(c.lastHead)
 			} else {
-				c.lastHead = nil
+				c.lastHead = c.lastHead[:0]
 			}
 		}
 	}
@@ -262,6 +262,12 @@ func (s *Server) serveLoop(listener int) error {
 						break
 					}
 					c.input = c.input[:len(c.input)+read]
+					// Level-triggered epoll reports any bytes left in the socket.
+					// A short read normally contains the entire request; avoid a
+					// second syscall just to observe EAGAIN before replying.
+					if len(c.input) < cap(c.input) {
+						break
+					}
 				}
 			}
 			if dead {

@@ -71,7 +71,10 @@ func (s *Server) handle(req Request) (reply Reply) {
 	store := s.store
 	target := s.routes[req.path]
 	if target == nil {
-		u, err := url.ParseRequestURI(req.path)
+		// The transport lends strings backed by its reusable input buffer.
+		// A cached route owns the URI and every substring derived from it.
+		path := strings.Clone(req.path)
+		u, err := url.ParseRequestURI(path)
 		if err != nil {
 			panic(err)
 		}
@@ -99,7 +102,7 @@ func (s *Server) handle(req Request) (reply Reply) {
 		if len(s.routes) >= 1024 {
 			clear(s.routes)
 		}
-		s.routes[req.path] = target
+		s.routes[path] = target
 	}
 	u := target.u
 	path := u.Path

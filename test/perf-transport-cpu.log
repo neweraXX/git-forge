@@ -1,0 +1,4 @@
+scores    {"agent":200,"feature":600,"perf":200,"perf_p50_us":42398,"score":1000,"working":1} (each column's mean over the one trial; no 90% interval at one trial)
+trials    1 finished, 0 timeout, 0 nondeterministic; 1 of 1 stores working
+ENTRYCPU node_ms=130 go_ms=300 total_ms=430
+push=52.009ms clone=16.724ms read=173.518ms write=21.411ms

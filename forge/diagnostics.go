@@ -40,12 +40,19 @@ func startDiagnostics() {
 			case strings.HasPrefix(command, "profile "):
 				var err error
 				profile, err = os.Create(strings.TrimPrefix(command, "profile "))
-				if err != nil { panic(err) }
-				if err = pprof.StartCPUProfile(profile); err != nil { panic(err) }
+				if err != nil {
+					panic(err)
+				}
+				if err = pprof.StartCPUProfile(profile); err != nil {
+					panic(err)
+				}
 				os.Stderr.WriteString("PROFILE started\n")
 			case command == "stop":
 				pprof.StopCPUProfile()
-				if profile != nil { profile.Close(); profile = nil }
+				if profile != nil {
+					profile.Close()
+					profile = nil
+				}
 				os.Stderr.WriteString("PROFILE stopped\n")
 			}
 		}

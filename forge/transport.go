@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 )
 
 const maxBody = 128 * 1024 * 1024
@@ -70,9 +71,18 @@ type framing struct {
 }
 
 func parseHeaders(head []byte) (req Request, f framing) {
+	return parseHeaderText(head, string(head))
+}
+
+// Views live only until the connection input is compacted. Retained routes and
+// memoized requests explicitly take ownership of their header/path bytes.
+func parseHeadersView(head []byte) (req Request, f framing) {
+	return parseHeaderText(head, unsafe.String(unsafe.SliceData(head), len(head)))
+}
+func parseHeaderText(head []byte, text string) (req Request, f framing) {
 	end := bytes.Index(head, []byte("\r\n"))
 	need(end >= 0, 400, "Bad Request")
-	first := string(head[:end])
+	first := text[:end]
 	a, b := strings.IndexByte(first, ' '), strings.LastIndexByte(first, ' ')
 	need(a > 0 && b > a && (first[b+1:] == "HTTP/1.1" || first[b+1:] == "HTTP/1.0") && !strings.Contains(first[a+1:b], " "), 400, "Bad Request")
 	req.method, req.path = first[:a], first[a+1:b]
@@ -82,6 +92,7 @@ func parseHeaders(head []byte) (req Request, f framing) {
 		end = bytes.Index(head[pos:], []byte("\r\n"))
 		need(end >= 0, 400, "Bad Request")
 		end += pos
+		lineStart := pos
 		line := head[pos:end]
 		pos = end + 2
 		if len(line) == 0 {
@@ -94,14 +105,14 @@ func parseHeaders(head []byte) (req Request, f framing) {
 		default:
 			continue
 		}
-		name, value := line[:colon], bytes.TrimSpace(line[colon+1:])
+		name, value := line[:colon], strings.TrimSpace(text[lineStart+colon+1:end])
 		switch {
 		case bytes.EqualFold(name, []byte("authorization")):
-			req.authorization = string(value)
+			req.authorization = value
 		case bytes.EqualFold(name, []byte("git-protocol")):
-			req.gitProtocol = string(value)
+			req.gitProtocol = value
 		case bytes.EqualFold(name, []byte("host")):
-			req.host = string(value)
+			req.host = value
 		case bytes.EqualFold(name, []byte("content-length")):
 			need(!length && len(value) > 0, 400, "Bad Request")
 			n := 0
@@ -121,17 +132,17 @@ func parseHeaders(head []byte) (req Request, f framing) {
 			length = true
 			f.length = n
 		case bytes.EqualFold(name, []byte("connection")):
-			if bytes.EqualFold(value, []byte("close")) {
+			if strings.EqualFold(value, "close") {
 				f.close = true
-			} else if bytes.EqualFold(value, []byte("keep-alive")) {
+			} else if strings.EqualFold(value, "keep-alive") {
 				f.close = false
 			}
 		case bytes.EqualFold(name, []byte("transfer-encoding")):
-			need(!transfer && bytes.EqualFold(value, []byte("chunked")), 400, "Bad Request")
+			need(!transfer && strings.EqualFold(value, "chunked"), 400, "Bad Request")
 			transfer = true
 			f.chunked = true
 		case bytes.EqualFold(name, []byte("expect")):
-			f.expect = bytes.EqualFold(value, []byte("100-continue"))
+			f.expect = strings.EqualFold(value, "100-continue")
 		}
 	}
 	need(!(length && transfer), 400, "Bad Request")
@@ -191,12 +202,12 @@ func (s *Server) serveConn(c net.Conn) {
 		if lastHead != nil && bytes.Equal(head, lastHead) {
 			req = lastRequest
 		} else {
-			req, frame = parseHeaders(head)
-			if req.method == "GET" && !frame.close && !frame.chunked && frame.length == 0 {
+			req, frame = parseHeadersView(head)
+			if req.method == "GET" && !frame.close && !frame.chunked && !frame.expect && frame.length == 0 {
 				lastHead = append(lastHead[:0], head...)
-				lastRequest = req
+				lastRequest, _ = parseHeadersView(lastHead)
 			} else {
-				lastHead = nil
+				lastHead = lastHead[:0]
 			}
 		}
 		if frame.expect {
