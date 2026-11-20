@@ -1,0 +1,4 @@
+scores    {"agent":200,"feature":600,"perf":200,"perf_p50_us":45923,"score":1000,"working":1}
+trials    1 finished, 0 timeout, 0 nondeterministic; 1 of 1 stores working
+ENTRYCPU node_ms=220 go_ms=340 total_ms=560
+push=51.905ms clone=17.409ms read=197.669ms write=24.901ms

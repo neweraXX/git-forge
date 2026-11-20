@@ -202,6 +202,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(reply.data)
 }
 func main() {
+	startDiagnostics()
 	if n, e := strconv.Atoi(env("FORGE_PROCS", "2")); e == nil && n > 0 {
 		runtime.GOMAXPROCS(n)
 	}
