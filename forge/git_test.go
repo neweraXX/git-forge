@@ -165,3 +165,46 @@ func TestSidebandFrameBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestValidationScratchRecoversAfterMissingObject(t *testing.T) {
+	r := newRepository(1, M{"name": "recover"})
+	data := []byte("tree " + zero + "\n\nmissing tree\n")
+	tip := r.put("commit", data)
+	rejected(t, func() { validateGraph(r, []string{tip}) })
+	if r.objects[tip].valid {
+		t.Fatal("failed traversal validated a partial graph")
+	}
+	r.objects[zero] = &Object{kind: "tree", data: nil}
+	validateGraph(r, []string{tip})
+	if !r.objects[tip].valid || !r.objects[zero].valid {
+		t.Fatal("validation did not recover")
+	}
+}
+
+func TestReceiveReportCacheChecksEveryPush(t *testing.T) {
+	r := newRepository(1, M{"name": "reports"})
+	blob := r.put("blob", []byte("content"))
+	tip := r.writeCommit(map[string]string{"file": blob}, nil, "root")
+	ids, _ := closure(r, []string{tip}, nil, 100)
+	pack := packObjects(r, ids)
+	push := func(old, next string, p []byte) []byte {
+		body := append(packet(old+" "+next+" refs/heads/main\x00report-status\n"), flush...)
+		return receive(r, append(body, p...))
+	}
+	good := bytes.Clone(push(zero, tip, pack))
+	if !bytes.Contains(good, []byte("ok refs/heads/main")) {
+		t.Fatal("first push failed")
+	}
+	stale := push(zero, tip, pack)
+	if !bytes.Contains(stale, []byte("ng refs/heads/main stale old object id")) {
+		t.Fatal("cached success bypassed stale ref check")
+	}
+	broken := bytes.Clone(pack)
+	broken[len(broken)-1] ^= 1
+	if result := push(tip, tip, broken); !bytes.Contains(result, []byte("unpack invalid pack")) {
+		t.Fatal("cached success bypassed checksum")
+	}
+	if result := push(tip, tip, pack); !bytes.Equal(result, good) {
+		t.Fatal("cached verdict did not recover after rejection")
+	}
+}

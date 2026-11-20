@@ -6,9 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
-	"fmt"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,7 +28,22 @@ func pkt(data []byte) []byte {
 	return out
 }
 func packet(s string) []byte { return pkt([]byte(s)) }
-func packets(body []byte, stop bool) (lines []string, offset int) {
+func appendPacket(out []byte, parts ...string) []byte {
+	n := 4
+	for _, part := range parts {
+		n += len(part)
+	}
+	need(n <= 65520, 400, "Packet too large")
+	const digits = "0123456789abcdef"
+	out = append(out, digits[n>>12&15], digits[n>>8&15], digits[n>>4&15], digits[n&15])
+	for _, part := range parts {
+		out = append(out, part...)
+	}
+	return out
+}
+func packets(body []byte, stop bool) ([]string, int) { return packetsInto(body, stop, nil) }
+func packetsInto(body []byte, stop bool, lines []string) (_ []string, offset int) {
+	text := stringView(body)
 	for offset < len(body) {
 		need(offset+4 <= len(body), 400, "Invalid pkt-line")
 		n, e := strconv.ParseUint(string(body[offset:offset+4]), 16, 16)
@@ -46,10 +59,10 @@ func packets(body []byte, stop bool) (lines []string, offset int) {
 			continue
 		}
 		need(n >= 4 && n <= 65520 && offset+int(n)-4 <= len(body), 400, "Truncated pkt-line")
-		lines = append(lines, string(body[offset:offset+int(n)-4]))
+		lines = append(lines, text[offset:offset+int(n)-4])
 		offset += int(n) - 4
 	}
-	return
+	return lines, offset
 }
 func sideband(data []byte) []byte {
 	out := make([]byte, len(data)+((len(data)+65514)/65515)*5+4)
@@ -134,6 +147,7 @@ type pendingDelta struct {
 type packInflater struct {
 	source bytes.Reader
 	reader io.ReadCloser
+	extra  [1]byte
 }
 
 var inflaterPool = sync.Pool{New: func() any { return &packInflater{} }}
@@ -202,8 +216,7 @@ func unpack(r *Repository, pack []byte) {
 		data := make([]byte, size)
 		_, err = io.ReadFull(state.reader, data)
 		need(err == nil || (size == 0 && err == io.EOF), 400, "Packed object size mismatch")
-		var extra [1]byte
-		n, err := state.reader.Read(extra[:])
+		n, err := state.reader.Read(state.extra[:])
 		need(n == 0 && err == io.EOF, 400, "Invalid compressed object")
 		pos = end - state.source.Len()
 		if kind == 6 || kind == 7 {
@@ -371,17 +384,26 @@ func peeled(r *Repository, oid string) string {
 	return ""
 }
 func validateGraph(r *Repository, tips []string) {
-	pending := append([]string{}, tips...)
-	checked := map[string]bool{}
+	r.validationRun++
+	run := r.validationRun
+	pending := append(r.validationPending[:0], tips...)
+	checked := r.validationChecked[:0]
+	defer func() {
+		clear(pending[:cap(pending)])
+		clear(checked)
+		r.validationPending = pending[:0]
+		r.validationChecked = checked[:0]
+	}()
 	for len(pending) > 0 {
 		oid := pending[len(pending)-1]
 		pending = pending[:len(pending)-1]
-		if r.validated[oid] || checked[oid] {
-			continue
-		}
 		o := r.objects[oid]
 		need(o != nil, 400, "Missing object")
-		checked[oid] = true
+		if o.valid || o.visit == run {
+			continue
+		}
+		o.visit = run
+		checked = append(checked, o)
 		switch o.kind {
 		case "commit":
 			c := r.commit(oid)
@@ -399,8 +421,8 @@ func validateGraph(r *Repository, tips []string) {
 			pending = append(pending, target)
 		}
 	}
-	for oid := range checked {
-		r.validated[oid] = true
+	for _, o := range checked {
+		o.valid = true
 	}
 }
 
@@ -436,51 +458,119 @@ func advertise(r *Repository, service string, v2 bool) []byte {
 	if service != "git-receive-pack" {
 		caps = "multi_ack_detailed side-band-64k ofs-delta shallow symref=HEAD:refs/heads/" + r.branch + " agent=forge/1"
 	}
-	out := append(packet("# service="+service+"\n"), flush...)
-	list := refs(r)
-	if len(list) == 0 {
-		out = append(out, packet(zero+" capabilities^{}\x00"+caps+"\n")...)
-	} else {
-		for i, ref := range list {
-			extra := ""
-			if i == 0 {
-				extra = "\x00" + caps
-			}
-			out = append(out, packet(ref.oid+" "+ref.name+extra+"\n")...)
-			if peel := peeled(r, ref.oid); peel != "" {
-				out = append(out, packet(peel+" "+ref.name+"^{}\n")...)
-			}
+	// Size once and append packets directly. The single-ref case needs neither
+	// a sorted-key slice nor the temporary HEAD/ref list used by generic ls-refs.
+	size := 4 + len("# service=\n") + len(service) + 4 + 4 + 1 + len(caps)
+	head := r.resolve("")
+	if head != "" {
+		size += 4 + 40 + 1 + len("HEAD") + 1
+	}
+	for name, oid := range r.refs {
+		size += 4 + 40 + 1 + len(name) + 1
+		if peeled(r, oid) != "" {
+			size += 4 + 40 + 1 + len(name) + 3 + 1
 		}
+	}
+	if len(r.refs) == 0 && head == "" {
+		size += 4 + 40 + len(" capabilities^{}\n")
+	}
+	out := make([]byte, 0, size)
+	out = appendPacket(out, "# service=", service, "\n")
+	out = append(out, flush...)
+	first := true
+	add := func(name, oid string) {
+		if first {
+			out = appendPacket(out, oid, " ", name, "\x00", caps, "\n")
+			first = false
+		} else {
+			out = appendPacket(out, oid, " ", name, "\n")
+		}
+		if peel := peeled(r, oid); peel != "" {
+			out = appendPacket(out, peel, " ", name, "^{}\n")
+		}
+	}
+	if head != "" {
+		add("HEAD", head)
+	}
+	if len(r.refs) == 1 {
+		for name, oid := range r.refs {
+			add(name, oid)
+		}
+	} else {
+		for _, name := range sortedKeys(r.refs) {
+			add(name, r.refs[name])
+		}
+	}
+	if first {
+		out = appendPacket(out, zero, " capabilities^{}\x00", caps, "\n")
 	}
 	out = append(out, flush...)
 	r.refResponses[service] = out
 	return out
 }
 
-var oidPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
-var badRef = regexp.MustCompile("[\x00-\x20~^:?*\\[\\\\]")
+func validOID(oid string) bool {
+	if len(oid) != 40 {
+		return false
+	}
+	for i := 0; i < len(oid); i++ {
+		b := oid[i]
+		if !(b >= '0' && b <= '9' || b >= 'a' && b <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+func validRef(ref string) bool {
+	if !strings.HasPrefix(ref, "refs/") {
+		return false
+	}
+	for i := 0; i < len(ref); i++ {
+		b := ref[i]
+		if b <= ' ' || b == '~' || b == '^' || b == ':' || b == '?' || b == '*' || b == '[' || b == '\\' {
+			return false
+		}
+	}
+	return true
+}
+
+type receiveReportKey struct {
+	side, unpackOK bool
+	ref, reason    string
+}
 
 func receive(r *Repository, body []byte) []byte {
-	lines, offset := packets(body, true)
+	var lineBuffer [1]string
+	lines, offset := packetsInto(body, true, lineBuffer[:0])
 	side := false
 	if len(lines) > 0 {
-		p := strings.SplitN(lines[0], "\x00", 2)
-		side = len(p) > 1 && strings.Contains(p[1], "side-band-64k")
+		_, caps, _ := strings.Cut(lines[0], "\x00")
+		side = strings.Contains(caps, "side-band-64k")
 	}
 	type command struct{ old, next, ref string }
-	commands := []command{}
+	var commandBuffer [1]command
+	commands := commandBuffer[:0]
 	for _, line := range lines {
-		p := strings.Split(strings.TrimSpace(strings.SplitN(line, "\x00", 2)[0]), " ")
-		need(len(p) >= 3 && oidPattern.MatchString(p[0]) && oidPattern.MatchString(p[1]) && strings.HasPrefix(p[2], "refs/") && !badRef.MatchString(p[2]), 400, "Invalid ref command")
-		commands = append(commands, command{p[0], p[1], p[2]})
+		line, _, _ = strings.Cut(line, "\x00")
+		old, rest, _ := strings.Cut(strings.TrimSpace(line), " ")
+		next, ref, _ := strings.Cut(rest, " ")
+		ref, _, _ = strings.Cut(ref, " ")
+		need(validOID(old) && validOID(next) && validRef(ref), 400, "Invalid ref command")
+		commands = append(commands, command{old, next, ref})
 	}
-	report := []string{}
+	var reasonBuffer [1]string
+	reasons := reasonBuffer[:0]
+	if len(commands) > cap(reasons) {
+		reasons = make([]string, 0, len(commands))
+	}
+	reasons = reasons[:len(commands)]
+	unpackOK := true
 	func() {
 		defer func() {
 			if recover() != nil {
-				report = append(report, "unpack invalid pack\n")
-				for _, c := range commands {
-					report = append(report, "ng "+c.ref+" unpacker error\n")
+				unpackOK = false
+				for i := range commands {
+					reasons[i] = "unpacker error"
 				}
 			}
 		}()
@@ -491,15 +581,15 @@ func receive(r *Repository, body []byte) []byte {
 				need(c.next == zero, 400, "Missing pack")
 			}
 		}
-		tips := []string{}
+		var tipBuffer [1]string
+		tips := tipBuffer[:0]
 		for _, c := range commands {
 			if c.next != zero {
 				tips = append(tips, c.next)
 			}
 		}
 		validateGraph(r, tips)
-		report = append(report, "unpack ok\n")
-		for _, c := range commands {
+		for i, c := range commands {
 			current := r.refs[c.ref]
 			if current == "" {
 				current = zero
@@ -510,21 +600,40 @@ func receive(r *Repository, body []byte) []byte {
 			} else if c.next != zero && c.old != zero && !r.ancestor(c.old, c.next) {
 				reason = "non-fast-forward"
 			}
-			if reason != "" {
-				report = append(report, "ng "+c.ref+" "+reason+"\n")
-			} else {
+			reasons[i] = reason
+			if reason == "" {
 				r.setRef(c.ref, c.next)
-				report = append(report, "ok "+c.ref+"\n")
 			}
 		}
 	}()
-	key := fmt.Sprintf("%t:%s", side, strings.Join(report, ""))
+	key := receiveReportKey{side: side, unpackOK: unpackOK}
+	if len(commands) == 1 {
+		key.ref, key.reason = commands[0].ref, reasons[0]
+	} else {
+		var signature strings.Builder
+		for i, c := range commands {
+			signature.WriteString(c.ref)
+			signature.WriteByte(0)
+			signature.WriteString(reasons[i])
+			signature.WriteByte(0)
+		}
+		key.ref = signature.String()
+	}
 	if b := r.receiveReports[key]; b != nil {
 		return b
 	}
-	stream := []byte{}
-	for _, line := range report {
-		stream = append(stream, packet(line)...)
+	stream := make([]byte, 0, 64+len(commands)*64)
+	if unpackOK {
+		stream = appendPacket(stream, "unpack ok\n")
+	} else {
+		stream = appendPacket(stream, "unpack invalid pack\n")
+	}
+	for i, c := range commands {
+		if reasons[i] == "" {
+			stream = appendPacket(stream, "ok ", c.ref, "\n")
+		} else {
+			stream = appendPacket(stream, "ng ", c.ref, " ", reasons[i], "\n")
+		}
 	}
 	stream = append(stream, flush...)
 	if side {

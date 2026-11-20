@@ -121,12 +121,17 @@ func hashObject(kind string, data []byte) string {
 		n := copy(combined[:], bytes)
 		n += copy(combined[n:], data)
 		sum := sha1.Sum(combined[:n])
-		return hex.EncodeToString(sum[:])
+		return hexOID(sum[:])
 	}
 	h := sha1.New()
 	h.Write(bytes)
 	h.Write(data)
-	return hex.EncodeToString(h.Sum(nil))
+	return hexOID(h.Sum(nil))
+}
+func hexOID(raw []byte) string {
+	var text [40]byte
+	hex.Encode(text[:], raw)
+	return string(text[:])
 }
 
 type Object struct {
@@ -134,32 +139,38 @@ type Object struct {
 	data, packed []byte
 	commit       *Commit
 	entries      []Entry
+	valid        bool
+	visit        uint64
 }
 type Commit struct {
-	tree    string
-	parents []string
-	message string
+	tree        string
+	parents     []string
+	message     string
+	firstParent [1]string
 }
 type Entry struct{ mode, name, oid string }
 type Repository struct {
-	id                           int
-	name, description, branch    string
-	private                      bool
-	refs                         map[string]string
-	refOrder                     []string
-	objects                      map[string]*Object
-	issues, pulls                map[int]M
-	labels                       map[string]M
-	labelOrder                   []string
-	nextNumber                   int
-	fetchCache, lsRefsCache      [2]map[string][]byte
-	refResponses, receiveReports map[string][]byte
-	validated                    map[string]bool
-	issueBytes                   map[int][]byte
+	id                        int
+	name, description, branch string
+	private                   bool
+	refs                      map[string]string
+	refOrder                  []string
+	objects                   map[string]*Object
+	issues, pulls             map[int]M
+	labels                    map[string]M
+	labelOrder                []string
+	nextNumber                int
+	fetchCache, lsRefsCache   [2]map[string][]byte
+	refResponses              map[string][]byte
+	receiveReports            map[receiveReportKey][]byte
+	validationRun             uint64
+	validationPending         []string
+	validationChecked         []*Object
+	issueBytes                map[int][]byte
 }
 
 func newRepository(id int, in M) *Repository {
-	return &Repository{id: id, name: str(in["name"]), description: fallback(in["description"], ""), branch: fallback(in["default_branch"], "main"), private: truth(in["private"]), refs: map[string]string{}, objects: map[string]*Object{}, issues: map[int]M{}, pulls: map[int]M{}, labels: map[string]M{}, nextNumber: 1, refResponses: map[string][]byte{}, receiveReports: map[string][]byte{}, validated: map[string]bool{}, issueBytes: map[int][]byte{}}
+	return &Repository{id: id, name: str(in["name"]), description: fallback(in["description"], ""), branch: fallback(in["default_branch"], "main"), private: truth(in["private"]), refs: map[string]string{}, objects: map[string]*Object{}, issues: map[int]M{}, pulls: map[int]M{}, labels: map[string]M{}, nextNumber: 1, refResponses: map[string][]byte{}, receiveReports: map[receiveReportKey][]byte{}, issueBytes: map[int][]byte{}}
 }
 func (r *Repository) put(kind string, data []byte) string {
 	oid := hashObject(kind, data)
@@ -217,9 +228,12 @@ func (r *Repository) commit(oid string) *Commit {
 	if o.commit != nil {
 		return o.commit
 	}
-	t := string(o.data)
-	c := &Commit{parents: []string{}}
-	for _, line := range strings.Split(t, "\n") {
+	t := stringView(o.data) // Object bytes are immutable and owned by the repository.
+	c := &Commit{}
+	c.parents = c.firstParent[:0]
+	for rest := t; rest != ""; {
+		line, next, _ := strings.Cut(rest, "\n")
+		rest = next
 		if strings.HasPrefix(line, "tree ") && len(line) >= 45 {
 			c.tree = line[5:45]
 		}
@@ -253,7 +267,7 @@ func (r *Repository) tree(oid string) []Entry {
 		need(n >= 0, 400, "Invalid tree")
 		n += s
 		need(n+21 <= len(d), 400, "Invalid tree")
-		es = append(es, Entry{string(d[p:s]), string(d[s+1 : n]), hex.EncodeToString(d[n+1 : n+21])})
+		es = append(es, Entry{stringView(d[p:s]), stringView(d[s+1 : n]), hexOID(d[n+1 : n+21])})
 		p = n + 21
 	}
 	o.entries = es

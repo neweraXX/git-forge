@@ -77,8 +77,9 @@ func parseHeaders(head []byte) (req Request, f framing) {
 // Views live only until the connection input is compacted. Retained routes and
 // memoized requests explicitly take ownership of their header/path bytes.
 func parseHeadersView(head []byte) (req Request, f framing) {
-	return parseHeaderText(head, unsafe.String(unsafe.SliceData(head), len(head)))
+	return parseHeaderText(head, stringView(head))
 }
+func stringView(b []byte) string { return unsafe.String(unsafe.SliceData(b), len(b)) }
 func parseHeaderText(head []byte, text string) (req Request, f framing) {
 	end := bytes.Index(head, []byte("\r\n"))
 	need(end >= 0, 400, "Bad Request")
