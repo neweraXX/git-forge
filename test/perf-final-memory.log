@@ -1,0 +1,4 @@
+{"repeat":0,"variant":"final-epoll-2-gc600-unlimited","node_ms":130,"go_ms":290,"total_ms":420,"go_rss_mb":21.40625,"gc_live":0,"perf_p50_us":42640,"push":51.109,"clone":16.246,"read":180.334,"write":22.078}
+{"repeat":1,"variant":"final-epoll-2-gc600-unlimited","node_ms":140,"go_ms":280,"total_ms":420,"go_rss_mb":19.70703125,"gc_live":0,"perf_p50_us":41627,"push":48.38,"clone":15.32,"read":179.81,"write":22.529}
+{"repeat":2,"variant":"final-epoll-2-gc600-unlimited","node_ms":120,"go_ms":280,"total_ms":400,"go_rss_mb":21.3515625,"gc_live":0,"perf_p50_us":42429,"push":51.32,"clone":15.588,"read":182.045,"write":22.254}
+{"variant":"final-epoll-2-gc600-unlimited","medians":{"node_ms":130,"go_ms":280,"total_ms":420,"go_rss_mb":21.3515625,"gc_live":0,"perf_p50_us":42429,"push":51.109,"clone":15.588,"read":180.334,"write":22.254}}

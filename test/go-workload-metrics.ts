@@ -13,7 +13,7 @@ const realFetch = globalThis.fetch;
 let barrier: Promise<any> = Promise.resolve();
 globalThis.fetch = async (...args: Parameters<typeof fetch>) => { await barrier; return realFetch(...args); };
 for (let repeat = 0; repeat < repeats; repeat++) {
-  const child = spawn(`/bot/bin/forge-${process.arch === 'arm64' ? 'arm64' : 'x64'}`, [], {
+  const child = spawn(process.env.FORGE_BINARY || `/bot/bin/forge-${process.arch === 'arm64' ? 'arm64' : 'x64'}`, [], {
     env: { ...process.env, MAKEFUN_SHOP_TOKEN: 'metrics', FORGE_DIAGNOSTICS: '1' }, stdio: ['pipe', 'pipe', 'pipe'],
   });
   const exited = new Promise<number | null>((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); });

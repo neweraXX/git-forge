@@ -1,5 +1,62 @@
 # Performance measurements
 
+## Go CPU and allocation round (2026-11-20)
+
+Starting runtime: `b93dca4`; final runtime and rebuilt binaries: `589124a`. The supplied starting production result was score 943 and perf_p50_us 447309. No production regrade was performed in this round. The requested **50% reduction in Go ENTRYCPU was not reached**: the required three-run medians improved 9.1% on two CPUs and 3.1% on one CPU. One-CPU total entry CPU increased because the unchanged Node launcher's measured CPU increased.
+
+### Exact workload measurements
+
+`./dock node test/go-workload-metrics.ts` imports the sealed `/kit/program/env/src/bench.ts`, runs its exact push/clone/read/write workloads, and measures the separate Go child. Each workload has 11 rounds; setup, warm-up and round one are excluded. An idle stdin diagnostics channel pauses the next round at the fetch boundary while taking `runtime.MemStats`, process `getrusage`, and `/proc/<pid>/stat` snapshots. Diagnostics are opt-in and add no counters, endpoints or branches to request handling. CPU includes Go runtime work; client CPU is excluded. One operation is one push, one complete protocol-v2 depth-1 clone, one issue GET, or one issue creation.
+
+The final comparison interleaves three fresh baseline processes and three fresh final processes in the order before/after/after/before/before/after. The baseline binary from `0c1ae6f` is `b93dca4`'s implementation with only the same opt-in diagnostics added. That temporary baseline binary was removed after measurement. `test/perf-paired-workloads.log` contains every sample and the median of each version's three process averages. This paired comparison is the reported per-workload result; the initial and final unpaired samples remain available in separate logs, including a noisy clone regression in the final unpaired run.
+
+| Workload | Go CPU us/op before → after | /proc CPU us/op before → after | Allocations/op before → after | Bytes allocated/op before → after |
+| --- | ---: | ---: | ---: | ---: |
+| Push | 27.814 → 23.924 | 30 → 25 | 60.056 → 14.023 | 6307.592 → 3471.368 |
+| Clone | 25.226 → 22.254 | 20 → 20 | 13.170 → 0.020 | 685.504 → 0.320 |
+| Read | 4.6865 → 4.4457 | 4.5 → 4.5 | 0.0005 → 0.0005 | 0.008 → 0.008 |
+| Write | 10.9175 → 7.3450 | 10 → 10 | 31.990 → 6.032 | 3195.424 → 1436.640 |
+
+The first CPU column uses process `getrusage` microseconds to avoid `/proc`'s 10 ms tick quantization. The independent `/proc` measurement is retained as requested. The stats command itself contributes one 16-byte allocation per round: 0.020 allocations/clone and 0.0005 allocations/read. Thus warmed clone and read application paths allocate zero. Push and write include real object/issue storage and occasional store growth, rather than just a handler microbenchmark. Paired per-round p50s were push 25.214→24.599 ms, clone 13.725→13.604, read 86.427→86.924, write 13.147→12.423. These standalone timings exclude the lifecycle forwarder and are not full-grade or production timings.
+
+Profiles (`test/perf-baseline-profile.log`, `test/perf-final-profile.log`) identify socket/syscall work as the dominant read and clone cost. Final read samples spend 360/500 ms flat in `Syscall6`; clone's sampled CPU is entirely in syscalls. Push still spends 70/190 ms cumulatively in stdlib flate decoding, including dynamic Huffman table construction. SHA-1 is a smaller remaining cost. Regex matching, temporary headers, per-object zlib checksum objects, general JSON decoding, and temporary graph-validation maps were removed from the common paths. Profiles have substantial sampling/runtime overhead and are used only to identify functions, not to compare CPU/op.
+
+### Required full-grade CPU repeats
+
+These are medians of exactly three `./dock cpu` and three `./dock cpu 1` runs per version. The sampler includes live plus replay, using 10 ms CPU ticks; p50s are the live workload round times. No diagnostic environment is enabled. Full samples are in `test/perf-baseline-cpu*-run*.log` and `test/perf-final-cpu*-run*.log`; `./dock node test/summarize-performance.ts` verifies and aggregates them.
+
+| Measurement | 2 CPUs before | 2 CPUs after | 1 CPU before | 1 CPU after |
+| --- | ---: | ---: | ---: | ---: |
+| Go CPU ms | 330 | 300 | 320 | 310 |
+| Node CPU ms | 150 | 140 | 150 | 200 |
+| Total entry CPU ms | 480 | 440 | 480 | 510 |
+| Push p50 ms | 53.737 | 50.765 | 93.917 | 89.631 |
+| Clone p50 ms | 19.194 | 18.465 | 39.034 | 45.488 |
+| Read p50 ms | 190.375 | 184.582 | 288.793 | 291.433 |
+| Write p50 ms | 24.588 | 22.700 | 26.041 | 25.041 |
+
+Go CPU samples: two CPUs 340/330/330→290/300/300 ms; one CPU 300/340/320→310/310/310 ms. Total entry samples: two CPUs 560/480/470→440/440/440 ms; one CPU 450/480/480→490/510/510 ms. Overall entry CPU improved 8.3% on two CPUs and regressed 6.3% on one CPU. The launcher and Node fallback code were unchanged. Local wall-time and CPU variation limit conclusions about production improvement.
+
+### Retained implementation and runtime settings
+
+- The nonblocking epoll loop stops reading after a short successful read, avoiding the normal second read just to receive EAGAIN. It retries partial writes immediately and enables EPOLLOUT only after EAGAIN. Closing a socket removes its epoll watch without a redundant DEL syscall. Ordinary requests use one read and one write. Header parsing borrows input bytes; retained routes and memoized GET headers own their storage.
+- Full immutable HTTP responses are cached for issue GET, v0/v2 advertisements, ls-refs and shallow upload-pack replies. Issue/ref mutations invalidate the corresponding caches. Advertisement and created-issue builders reserve header space and append the body once, sharing one allocation between the body and full HTTP response.
+- Pack input is parsed once using pooled flate readers, SHA-1 state, digest/header storage, staged-object slices and validation slices. Zlib headers, dictionaries and Adler32 are checked explicitly, alongside the pack checksum, object sizes, hashes, deltas and graph closure. Only successfully validated objects are marked reusable. Common push verdicts use cached reports after all checks; reference/object validation no longer uses regexes or temporary maps.
+- Issues have compact typed records and lazy generic materialization for REST lists, GraphQL and MCP. The common create request uses a one-pass string parser, with stdlib JSON fallback for escapes, Unicode and other input shapes. Append builders preserve the existing serialized bytes, field ordering and cross-surface mutations.
+
+After the allocation changes, `./dock node test/cpu-tune.ts` tested eight GC/worker/thread variants three times each (`test/perf-gc-procs.log`). **GOGC=600, GOMAXPROCS=2, no explicit memory limit, locked serving thread** remains the default. Two workers/GC600 used median 280 ms Go CPU versus 340 ms with one worker. GC100 used 290 ms and four live collections; GC disabled used 280 ms with no clear improvement. Unlocking the thread did not consistently improve latency. Separate final memory diagnostics measured zero live collections and peak RSS of 21.41, 19.71 and 21.35 MiB. Their lower Go CPU samples are retained separately and do not replace the required CPU repeats above.
+
+Discarded experiments: bounded raw epoll waits, which did not consistently improve end-to-end CPU/latency; and recvfrom/sendto in place of read/write, which lost the paired/full-grade comparison (300 versus 310 ms Go CPU). No busy spinning, raw epoll wait mode or alternate socket syscalls are deployed. Logs remain in `test/perf-wait-procs.log` and `test/perf-socket-*.log`.
+
+### Final validation
+
+- `./dock gobuild` passed Go vet and rebuilt both static binaries; `./dock gotest` passed all Go tests. Added regression coverage includes borrowed header ownership, cached advertisement mutation/in-flight ownership, malformed zlib/dictionaries/checksums and recovery, larger forward-delta packs, graph-validation recovery, issue JSON edge cases and cache invalidation.
+- `./dock grade 3`: **120/120 checks on all three instances**, scores **1000, 1000, 1000**, every replay byte-identical. Native perf_p50_us: **46439, 49013, 41723**, mean **45725** (`test/perf-final-native.log`).
+- `./dock grade-amd64 3`: **120/120 checks on all three instances**, scores **1000, 1000, 999**, every replay byte-identical. The last emulated run earned perf 199; its feature and agent scores remained 600 and 200. Emulated perf_p50_us 88442, 83545 and 96696 are correctness evidence only (`test/perf-final-amd64.log`).
+- The retained-log grader separately asserted all 120 checks and verified the Go listener with no fallback in three native and three forced-amd64-binary runs (`test/perf-final-logged.log`). The 48-request Node parity comparison, protocol, epoll transport/backpressure, and all seven launcher/fallback cases passed. The all-pass state hash remains `a0e98d49854b961230227867235c8615858e006db3763f341ac6154af1445590`.
+
+The committed amd64 binary is 6549652 bytes, SHA-256 `78214db82cbad48ff14ba069ece9c41456d04263a1474b3c864bbb8e7430e219`; the local arm64 binary is 6160532 bytes. Runtime milestones were `42d19ab` (transport), `0b5ec3e` (push/ad parsing), `0daaad1` (issues), `703bc09` (pack pools/direct issue cache), and `589124a` (complete advertisement builders and epoll operations). Owner metadata, README badges and the Node launcher/fallback were untouched. Nothing was pushed.
+
 ## CPU-focused server regression round (2026-11-18)
 
 The supplied production results were Go `6258074`: score 941, perf 141, 456780 us; Node `c4a6481`: score 953, perf 153, 391442 us. This round optimizes entry CPU rather than treating local wall time as evidence of a server win. No production regrade of this round was performed.

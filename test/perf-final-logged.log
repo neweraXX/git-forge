@@ -1,0 +1,8 @@
+{"binary":"arm64","node":"arm64","trial":0,"stderr":"Forge Go server listening on 42073","perf_p50_us":46922,"workloads":[{"name":"push","p50_ms":57.86},{"name":"clone","p50_ms":20.21},{"name":"read","p50_ms":182.155},{"name":"write","p50_ms":22.757}]}
+{"binary":"arm64","node":"arm64","trial":1,"stderr":"Forge Go server listening on 44469","perf_p50_us":43832,"workloads":[{"name":"push","p50_ms":53.845},{"name":"clone","p50_ms":16.362},{"name":"read","p50_ms":190.824},{"name":"write","p50_ms":21.955}]}
+{"binary":"arm64","node":"arm64","trial":2,"stderr":"Forge Go server listening on 33265","perf_p50_us":45457,"workloads":[{"name":"push","p50_ms":52.31},{"name":"clone","p50_ms":19.054},{"name":"read","p50_ms":192.216},{"name":"write","p50_ms":22.286}]}
+arm64: 3/3 trials passed 120/120, all replays matched, Go listener verified in every trial log
+{"binary":"x64","node":"arm64","trial":0,"stderr":"Forge Go server listening on 36685","perf_p50_us":47282,"workloads":[{"name":"push","p50_ms":58.679},{"name":"clone","p50_ms":16.844},{"name":"read","p50_ms":208.342},{"name":"write","p50_ms":24.27}]}
+{"binary":"x64","node":"arm64","trial":1,"stderr":"Forge Go server listening on 37561","perf_p50_us":45575,"workloads":[{"name":"push","p50_ms":57.133},{"name":"clone","p50_ms":16.397},{"name":"read","p50_ms":198.781},{"name":"write","p50_ms":23.168}]}
+{"binary":"x64","node":"arm64","trial":2,"stderr":"Forge Go server listening on 45811","perf_p50_us":44319,"workloads":[{"name":"push","p50_ms":52.361},{"name":"clone","p50_ms":16.462},{"name":"read","p50_ms":188.455},{"name":"write","p50_ms":23.75}]}
+x64: 3/3 trials passed 120/120, all replays matched, Go listener verified in every trial log
