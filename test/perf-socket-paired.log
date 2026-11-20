@@ -1,0 +1,54 @@
+SOCKET_IO send
+{"repeat":0,"workload":"push","ops":2000,"cpu_us_op":30,"rusage_us_op":28.321,"allocs_op":14.027,"bytes_op":3491.952,"gc":0,"p50_ms":30.178}
+{"repeat":0,"workload":"clone","ops":500,"cpu_us_op":20,"rusage_us_op":25.52,"allocs_op":0.022,"bytes_op":0.96,"gc":0,"p50_ms":15.984}
+{"repeat":0,"workload":"read","ops":20000,"cpu_us_op":4.5,"rusage_us_op":4.5491,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":95.315}
+{"repeat":0,"workload":"write","ops":2000,"cpu_us_op":5,"rusage_us_op":7.616,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":13.21}
+{"workload":"push","median":{"cpu_us_op":30,"rusage_us_op":28.321,"allocs_op":14.027,"bytes_op":3491.952,"gc":0,"p50_ms":30.178}}
+{"workload":"clone","median":{"cpu_us_op":20,"rusage_us_op":25.52,"allocs_op":0.022,"bytes_op":0.96,"gc":0,"p50_ms":15.984}}
+{"workload":"read","median":{"cpu_us_op":4.5,"rusage_us_op":4.5491,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":95.315}}
+{"workload":"write","median":{"cpu_us_op":5,"rusage_us_op":7.616,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":13.21}}
+SOCKET_IO rw
+{"repeat":0,"workload":"push","ops":2000,"cpu_us_op":20,"rusage_us_op":23.575,"allocs_op":14.0285,"bytes_op":3492.024,"gc":0,"p50_ms":25.889}
+{"repeat":0,"workload":"clone","ops":500,"cpu_us_op":40,"rusage_us_op":29.868,"allocs_op":0.028,"bytes_op":34.496,"gc":0,"p50_ms":17.509}
+{"repeat":0,"workload":"read","ops":20000,"cpu_us_op":4.5,"rusage_us_op":4.4465,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":88.696}
+{"repeat":0,"workload":"write","ops":2000,"cpu_us_op":10,"rusage_us_op":7.202,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":13.051}
+{"workload":"push","median":{"cpu_us_op":20,"rusage_us_op":23.575,"allocs_op":14.0285,"bytes_op":3492.024,"gc":0,"p50_ms":25.889}}
+{"workload":"clone","median":{"cpu_us_op":40,"rusage_us_op":29.868,"allocs_op":0.028,"bytes_op":34.496,"gc":0,"p50_ms":17.509}}
+{"workload":"read","median":{"cpu_us_op":4.5,"rusage_us_op":4.4465,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":88.696}}
+{"workload":"write","median":{"cpu_us_op":10,"rusage_us_op":7.202,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":13.051}}
+SOCKET_IO rw
+{"repeat":0,"workload":"push","ops":2000,"cpu_us_op":25,"rusage_us_op":23.9975,"allocs_op":14.027,"bytes_op":3491.952,"gc":0,"p50_ms":24.932}
+{"repeat":0,"workload":"clone","ops":500,"cpu_us_op":40,"rusage_us_op":23.624,"allocs_op":0.02,"bytes_op":0.32,"gc":0,"p50_ms":13.412}
+{"repeat":0,"workload":"read","ops":20000,"cpu_us_op":4,"rusage_us_op":4.45365,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":85.996}
+{"repeat":0,"workload":"write","ops":2000,"cpu_us_op":10,"rusage_us_op":7.8125,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":12.675}
+{"workload":"push","median":{"cpu_us_op":25,"rusage_us_op":23.9975,"allocs_op":14.027,"bytes_op":3491.952,"gc":0,"p50_ms":24.932}}
+{"workload":"clone","median":{"cpu_us_op":40,"rusage_us_op":23.624,"allocs_op":0.02,"bytes_op":0.32,"gc":0,"p50_ms":13.412}}
+{"workload":"read","median":{"cpu_us_op":4,"rusage_us_op":4.45365,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":85.996}}
+{"workload":"write","median":{"cpu_us_op":10,"rusage_us_op":7.8125,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":12.675}}
+SOCKET_IO send
+{"repeat":0,"workload":"push","ops":2000,"cpu_us_op":20,"rusage_us_op":26.347,"allocs_op":14.027,"bytes_op":3491.952,"gc":0,"p50_ms":28.218}
+{"repeat":0,"workload":"clone","ops":500,"cpu_us_op":20,"rusage_us_op":24.904,"allocs_op":0.052,"bytes_op":10.56,"gc":0,"p50_ms":14.714}
+{"repeat":0,"workload":"read","ops":20000,"cpu_us_op":4.5,"rusage_us_op":4.37705,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":87}
+{"repeat":0,"workload":"write","ops":2000,"cpu_us_op":10,"rusage_us_op":6.9335,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":12.182}
+{"workload":"push","median":{"cpu_us_op":20,"rusage_us_op":26.347,"allocs_op":14.027,"bytes_op":3491.952,"gc":0,"p50_ms":28.218}}
+{"workload":"clone","median":{"cpu_us_op":20,"rusage_us_op":24.904,"allocs_op":0.052,"bytes_op":10.56,"gc":0,"p50_ms":14.714}}
+{"workload":"read","median":{"cpu_us_op":4.5,"rusage_us_op":4.37705,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":87}}
+{"workload":"write","median":{"cpu_us_op":10,"rusage_us_op":6.9335,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":12.182}}
+SOCKET_IO send
+{"repeat":0,"workload":"push","ops":2000,"cpu_us_op":50,"rusage_us_op":44.8585,"allocs_op":14.027,"bytes_op":3491.912,"gc":0,"p50_ms":41.161}
+{"repeat":0,"workload":"clone","ops":500,"cpu_us_op":20,"rusage_us_op":27.776,"allocs_op":0.02,"bytes_op":0.32,"gc":0,"p50_ms":13.054}
+{"repeat":0,"workload":"read","ops":20000,"cpu_us_op":13,"rusage_us_op":12.87235,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":167.193}
+{"repeat":0,"workload":"write","ops":2000,"cpu_us_op":15,"rusage_us_op":16.2685,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":20.47}
+{"workload":"push","median":{"cpu_us_op":50,"rusage_us_op":44.8585,"allocs_op":14.027,"bytes_op":3491.912,"gc":0,"p50_ms":41.161}}
+{"workload":"clone","median":{"cpu_us_op":20,"rusage_us_op":27.776,"allocs_op":0.02,"bytes_op":0.32,"gc":0,"p50_ms":13.054}}
+{"workload":"read","median":{"cpu_us_op":13,"rusage_us_op":12.87235,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":167.193}}
+{"workload":"write","median":{"cpu_us_op":15,"rusage_us_op":16.2685,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":20.47}}
+SOCKET_IO rw
+{"repeat":0,"workload":"push","ops":2000,"cpu_us_op":25,"rusage_us_op":23.8315,"allocs_op":14.028,"bytes_op":3492,"gc":0,"p50_ms":24.321}
+{"repeat":0,"workload":"clone","ops":500,"cpu_us_op":40,"rusage_us_op":24.226,"allocs_op":0.02,"bytes_op":0.32,"gc":0,"p50_ms":13.426}
+{"repeat":0,"workload":"read","ops":20000,"cpu_us_op":4.5,"rusage_us_op":4.3882,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":86.727}
+{"repeat":0,"workload":"write","ops":2000,"cpu_us_op":10,"rusage_us_op":7.475,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":12.457}
+{"workload":"push","median":{"cpu_us_op":25,"rusage_us_op":23.8315,"allocs_op":14.028,"bytes_op":3492,"gc":0,"p50_ms":24.321}}
+{"workload":"clone","median":{"cpu_us_op":40,"rusage_us_op":24.226,"allocs_op":0.02,"bytes_op":0.32,"gc":0,"p50_ms":13.426}}
+{"workload":"read","median":{"cpu_us_op":4.5,"rusage_us_op":4.3882,"allocs_op":0.0005,"bytes_op":0.008,"gc":0,"p50_ms":86.727}}
+{"workload":"write","median":{"cpu_us_op":10,"rusage_us_op":7.475,"allocs_op":6.032,"bytes_op":1436.64,"gc":0,"p50_ms":12.457}}

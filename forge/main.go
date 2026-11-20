@@ -137,11 +137,7 @@ func (s *Server) handle(req Request) (reply Reply) {
 		switch {
 		case target.kind == routeGitInfo && req.method == "GET":
 			need(service == "git-upload-pack" || service == "git-receive-pack", 400, "Unknown git service")
-			kind := "application/x-git-upload-pack-advertisement"
-			if service == "git-receive-pack" {
-				kind = "application/x-git-receive-pack-advertisement"
-			}
-			return Reply{status: 200, data: advertise(store.repo(owner, name), service, v2), contentType: kind}
+			return advertisement(store.repo(owner, name), service, v2)
 		case target.kind == routeGitService && req.method == "POST":
 			r := store.repo(owner, name)
 			var data []byte

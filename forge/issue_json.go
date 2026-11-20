@@ -97,11 +97,7 @@ func (s *Server) serializeCreatedIssue(r *Repository, id, number int, nodeID, ti
 	storage := make([]byte, 192+len(out))
 	data := storage[192:]
 	copy(data, out)
-	reply := Reply{status: 201, data: data, contentType: "application/json; charset=utf-8"}
-	var header [192]byte
-	head := appendResponseHead(header[:0], reply, false)
-	copy(storage[192-len(head):], head)
-	reply.wire = storage[192-len(head):]
+	reply := finishResponse(storage, 201, "application/json; charset=utf-8")
 	r.issueBytes[number] = data
 	if issue := r.issues[number]; issue != nil {
 		issue.read = Reply{status: 200, data: data, contentType: reply.contentType}

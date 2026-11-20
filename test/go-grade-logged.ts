@@ -33,6 +33,9 @@ for (const arch of native === 'arm64' ? ['arm64', 'x64'] : ['x64']) {
       const log = readFileSync(join(save, `trial-${trial}`, 'stderr.txt'), 'utf8');
       assert.match(log, /Forge Go server listening on \d+/);
       assert.doesNotMatch(log, /Forge binary fallback:/);
+      const state = JSON.parse(readFileSync(join(save, `trial-${trial}`, 'state', 'state.json'), 'utf8'));
+      assert.equal(state.counts.total, 120);
+      assert.equal(state.counts.passed, 120);
       const perf = JSON.parse(readFileSync(join(save, `trial-${trial}`, 'state', 'perf.json'), 'utf8'));
       console.log(JSON.stringify({ binary: arch, node: process.arch, trial, stderr: log.trim(), perf_p50_us: perf.perf_p50_us, workloads: perf.workloads.map((w: any) => ({ name: w.name, p50_ms: w.p50_ms })) }));
     }

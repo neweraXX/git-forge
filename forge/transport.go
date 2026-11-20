@@ -72,6 +72,17 @@ func appendResponseHead(out []byte, reply Reply, close bool) []byte {
 	return out
 }
 
+// Builders reserve 192 bytes before their body, then fill the exact HTTP header
+// backwards into that prefix. The body and wire share one immutable allocation.
+func finishResponse(storage []byte, status int, contentType string) Reply {
+	reply := Reply{status: status, data: storage[192:], contentType: contentType}
+	var buffer [192]byte
+	head := appendResponseHead(buffer[:0], reply, false)
+	copy(storage[192-len(head):], head)
+	reply.wire = storage[192-len(head):]
+	return reply
+}
+
 type framing struct {
 	length                 int
 	chunked, close, expect bool

@@ -2,7 +2,7 @@
 // /proc/<pid>/stat for child-only CPU and an idle stdin channel for MemStats.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { runBenchmark } from '/kit/program/env/src/bench.ts';
 
@@ -16,6 +16,7 @@ for (let repeat = 0; repeat < repeats; repeat++) {
   const child = spawn(`/bot/bin/forge-${process.arch === 'arm64' ? 'arm64' : 'x64'}`, [], {
     env: { ...process.env, MAKEFUN_SHOP_TOKEN: 'metrics', FORGE_DIAGNOSTICS: '1' }, stdio: ['pipe', 'pipe', 'pipe'],
   });
+  const exited = new Promise<number | null>((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); });
   const port = await new Promise<number>((resolve, reject) => {
     let out = ''; child.stdout.on('data', b => { out += b; if (out.includes('\n')) resolve(Number(out.split('\n')[0])); });
     child.once('error', reject); child.once('exit', code => reject(new Error(`exit ${code}`)));
@@ -33,7 +34,10 @@ for (let repeat = 0; repeat < repeats; repeat++) {
   });
   async function command(text: string) {
     assert.equal(pending, undefined);
-    return new Promise<string>(resolve => { pending = resolve; child.stdin.write(text + '\n'); });
+    return Promise.race([
+      new Promise<string>(resolve => { pending = resolve; child.stdin.write(text + '\n'); }),
+      exited.then(code => { throw new Error(`Go exited during diagnostics: ${code}`); }),
+    ]);
   }
   try {
     for (const name of ['push', 'clone', 'read', 'write'] as const) {
@@ -62,8 +66,9 @@ for (let repeat = 0; repeat < repeats; repeat++) {
         gc: last.GC - first.GC, p50_ms: result.workloads[0].p50_ms };
       rows.push(row); console.log(JSON.stringify(row));
     }
-  } finally { child.kill('SIGKILL'); await new Promise(resolve => child.once('exit', resolve)); }
+  } finally { child.kill('SIGKILL'); await exited; }
 }
+globalThis.fetch = realFetch;
 for (const name of ['push', 'clone', 'read', 'write']) {
   const samples = rows.filter(r => r.workload === name);
   const median = (key: string) => samples.map(r => r[key]).sort((a, b) => a - b)[Math.floor(samples.length / 2)];

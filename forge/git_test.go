@@ -276,3 +276,31 @@ func TestIndexedDeltaStaging(t *testing.T) {
 		}
 	}
 }
+
+func TestAdvertisementHTTPInvalidation(t *testing.T) {
+	r := newRepository(1, M{"name": "wire"})
+	blob := r.put("blob", []byte("file"))
+	first := r.writeCommit(map[string]string{"file": blob}, nil, "first")
+	second := r.writeCommit(map[string]string{"file": blob}, []string{first}, "second")
+	r.setRef("refs/heads/main", first)
+	s := newServer()
+	for _, service := range []string{"git-upload-pack", "git-receive-pack"} {
+		for _, v2 := range []bool{false, true} {
+			before := advertisement(r, service, v2)
+			wire := bytes.Clone(before.wire)
+			plain := Reply{status: before.status, data: before.data, contentType: before.contentType}
+			if !bytes.Equal(before.wire, s.encode(plain, false)) {
+				t.Fatal("complete advertisement encoding differs")
+			}
+			r.setRef("refs/heads/main", second)
+			after := advertisement(r, service, v2)
+			if !(v2 && service == "git-upload-pack") && bytes.Equal(before.wire, after.wire) {
+				t.Fatal("stale full advertisement after mutation")
+			}
+			if !bytes.Equal(before.wire, wire) {
+				t.Fatal("mutation changed an in-flight advertisement")
+			}
+			r.setRef("refs/heads/main", first)
+		}
+	}
+}

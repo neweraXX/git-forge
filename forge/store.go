@@ -165,7 +165,7 @@ type Repository struct {
 	labelOrder                []string
 	nextNumber                int
 	fetchCache, lsRefsCache   [2]map[string][]byte
-	refResponses              map[string][]byte
+	refResponses              map[string]Reply
 	receiveReports            map[receiveReportKey][]byte
 	validationRun             uint64
 	validationPending         []string
@@ -174,7 +174,7 @@ type Repository struct {
 }
 
 func newRepository(id int, in M) *Repository {
-	return &Repository{id: id, name: str(in["name"]), description: fallback(in["description"], ""), branch: fallback(in["default_branch"], "main"), private: truth(in["private"]), refs: map[string]string{}, objects: map[string]*Object{}, issues: map[int]*IssueRecord{}, pulls: map[int]M{}, labels: map[string]M{}, nextNumber: 1, refResponses: map[string][]byte{}, receiveReports: map[receiveReportKey][]byte{}, issueBytes: map[int][]byte{}}
+	return &Repository{id: id, name: str(in["name"]), description: fallback(in["description"], ""), branch: fallback(in["default_branch"], "main"), private: truth(in["private"]), refs: map[string]string{}, objects: map[string]*Object{}, issues: map[int]*IssueRecord{}, pulls: map[int]M{}, labels: map[string]M{}, nextNumber: 1, refResponses: map[string]Reply{}, receiveReports: map[receiveReportKey][]byte{}, issueBytes: map[int][]byte{}}
 }
 func (r *Repository) put(kind string, data []byte) string {
 	oid := hashObject(kind, data)

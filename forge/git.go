@@ -529,11 +529,20 @@ var v2Advertisement = func() []byte {
 	return append(out, flush...)
 }()
 
+var v2AdvertisementReply = func() Reply {
+	storage := make([]byte, 192+len(v2Advertisement))
+	copy(storage[192:], v2Advertisement)
+	return finishResponse(storage, 200, "application/x-git-upload-pack-advertisement")
+}()
+
 func advertise(r *Repository, service string, v2 bool) []byte {
+	return advertisement(r, service, v2).data
+}
+func advertisement(r *Repository, service string, v2 bool) Reply {
 	if service == "git-upload-pack" && v2 {
-		return v2Advertisement
+		return v2AdvertisementReply
 	}
-	if b := r.refResponses[service]; b != nil {
+	if b := r.refResponses[service]; b.data != nil {
 		return b
 	}
 	caps := "report-status side-band-64k delete-refs ofs-delta agent=forge/1"
@@ -556,7 +565,7 @@ func advertise(r *Repository, service string, v2 bool) []byte {
 	if len(r.refs) == 0 && head == "" {
 		size += 4 + 40 + len(" capabilities^{}\n")
 	}
-	out := make([]byte, 0, size)
+	out := make([]byte, 192, 192+size)
 	out = appendPacket(out, "# service=", service, "\n")
 	out = append(out, flush...)
 	first := true
@@ -587,8 +596,13 @@ func advertise(r *Repository, service string, v2 bool) []byte {
 		out = appendPacket(out, zero, " capabilities^{}\x00", caps, "\n")
 	}
 	out = append(out, flush...)
-	r.refResponses[service] = out
-	return out
+	kind := "application/x-git-upload-pack-advertisement"
+	if service == "git-receive-pack" {
+		kind = "application/x-git-receive-pack-advertisement"
+	}
+	reply := finishResponse(out, 200, kind)
+	r.refResponses[service] = reply
+	return reply
 }
 
 func validOID(oid string) bool {

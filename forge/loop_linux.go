@@ -185,7 +185,7 @@ func (s *Server) serveLoop(listener int) error {
 	}
 	connections := map[int]*loopConn{}
 	drop := func(fd int) {
-		syscall.EpollCtl(epfd, syscall.EPOLL_CTL_DEL, fd, nil)
+		// No descriptor is duplicated: close removes its epoll watch as well.
 		syscall.Close(fd)
 		delete(connections, fd)
 	}
@@ -296,7 +296,9 @@ func (s *Server) serveLoop(listener int) error {
 				}
 				c.output = c.output[written:]
 				if len(c.output) > 0 {
-					break
+					// Retry partial writes immediately. Register EPOLLOUT only
+					// when the next nonblocking write actually returns EAGAIN.
+					continue
 				}
 				if c.closing {
 					dead = true
